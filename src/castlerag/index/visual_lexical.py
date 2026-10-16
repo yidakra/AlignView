@@ -187,9 +187,9 @@ def build_visual_bm25_index(
     fd, tmp_name = tempfile.mkstemp(
         prefix=f".{out_path.name}.", suffix=".tmp", dir=out_path.parent
     )
-    share_tmp_file(fd)  # mkstemp's 0600 would lock teammates out after replace
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            share_tmp_file(fh.fileno())  # mkstemp's 0600 would lock the group out
             # JSON, not pickle: the cache dir is treated as untrusted input
             # elsewhere (np.load(..., allow_pickle=False)), and a query-time
             # artifact must fail closed rather than execute code on load.

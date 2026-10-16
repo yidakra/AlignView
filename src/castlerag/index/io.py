@@ -89,9 +89,9 @@ def write_embedding_cache(
     fd, tmp_name = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
     )
-    share_tmp_file(fd)  # mkstemp's 0600 would lock teammates out after replace
     try:
         with os.fdopen(fd, "wb") as handle:
+            share_tmp_file(handle.fileno())  # mkstemp's 0600 would lock the group out
             np.savez_compressed(
                 handle,
                 record_ids=np.asarray(record_ids, dtype=str),

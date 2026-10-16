@@ -95,9 +95,9 @@ def _rewrite_jsonl(path: Path, rows: List[dict]) -> None:
     if not backup.exists():
         backup.write_bytes(path.read_bytes())
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    share_tmp_file(fd)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            share_tmp_file(fh.fileno())  # mkstemp's 0600 would lock the group out
             for row in rows:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
             fh.flush()
@@ -191,9 +191,9 @@ def thin_day(
 def _write_plan(path: Path, dropped: Set[str]) -> None:
     """Atomically save the paths to drop, so a re-run can finish the job."""
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    share_tmp_file(fd)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            share_tmp_file(fh.fileno())  # mkstemp's 0600 would lock the group out
             json.dump(sorted(dropped), fh)
             fh.flush()
             os.fsync(fh.fileno())
