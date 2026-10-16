@@ -19,16 +19,27 @@ def group_umask():
         os.umask(old)
 
 
-def test_current_umask_reads_without_changing(group_umask):
-    assert current_umask() == 0o007
-    assert current_umask() == 0o007
+def test_current_umask_does_not_change_the_umask(group_umask):
+    current_umask()
+    current_umask()
+    assert os.umask(0o007) == 0o007  # still what the fixture set
 
 
-def test_default_file_mode_follows_umask(group_umask):
+@pytest.fixture
+def import_umask_007(monkeypatch):
+    # Off Linux the umask is captured at import; pin it so the mode tests
+    # don't depend on the platform or on the umask pytest started with.
+    import castlerag.fsutil as fsutil
+
+    monkeypatch.setattr(fsutil, "_IMPORT_UMASK", 0o007)
+    monkeypatch.setattr(fsutil, "current_umask", lambda: 0o007)
+
+
+def test_default_file_mode_follows_umask(group_umask, import_umask_007):
     assert default_file_mode() == 0o660
 
 
-def test_share_tmp_file_sets_mode(tmp_path, group_umask):
+def test_share_tmp_file_sets_mode(tmp_path, group_umask, import_umask_007):
     import tempfile
 
     fd, name = tempfile.mkstemp(dir=tmp_path)
@@ -40,7 +51,7 @@ def test_share_tmp_file_sets_mode(tmp_path, group_umask):
         os.close(fd)
 
 
-def test_embedding_cache_is_group_readable(tmp_path, group_umask):
+def test_embedding_cache_is_group_readable(tmp_path, group_umask, import_umask_007):
     path = write_embedding_cache(
         ["a", "b"], np.zeros((2, 3), dtype=np.float32), tmp_path / "clips_day1.npz"
     )
