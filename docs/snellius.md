@@ -28,6 +28,18 @@ git clone git@github.com:yidakra/CastleRAG.git
 cd CastleRAG
 ```
 
+The repository is private. Clone with an SSH key that your GitHub account can
+use, or, for a shared checkout that only pulls, add a read-only deploy key:
+
+```bash
+ssh-keygen -t ed25519 -N "" -C "snellius-castlerag-readonly" -f ~/.ssh/castlerag_deploy
+cat ~/.ssh/castlerag_deploy.pub   # add under Settings > Deploy keys, read-only
+printf '\nHost github-castlerag\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/castlerag_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+git clone git@github-castlerag:yidakra/CastleRAG.git
+```
+
+Push from your own machine; the deploy key can only pull.
+
 ## 2. One-time environment
 
 Build the venv on a login node — the SLURM scripts pick it up from `${HOME}/castlerag_venv` by default.
