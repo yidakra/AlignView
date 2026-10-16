@@ -11,30 +11,43 @@ into place.
 from __future__ import annotations
 
 import os
+import subprocess
 
 
-def _read_umask_by_setting() -> int:
-    mask = os.umask(0o077)
-    os.umask(mask)
-    return mask
+def _read_umask_from_child() -> int:
+    """The umask without touching ours: a child shell inherits it and prints
+    it. Falls back to set-and-restore only if no shell can be run."""
+    try:
+        out = subprocess.run(
+            ["/bin/sh", "-c", "umask"], capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+        return int(out, 8)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        mask = os.umask(0o077)
+        os.umask(mask)
+        return mask
 
 
-# Without /proc (macOS) the umask can only be read by setting it, which other
-# threads would briefly see. Read it once at import, before worker threads
-# start, instead of on every call.
-_IMPORT_UMASK = _read_umask_by_setting()
+_PROC_STATUS = "/proc/self/status"
+
+# Off Linux (no /proc) the umask is read once, at import, from a child shell.
+# On Linux it is read live from /proc and no shell is started.
+_IMPORT_UMASK = None if os.path.exists(_PROC_STATUS) else _read_umask_from_child()
 
 
 def current_umask() -> int:
-    """The process umask. Linux reads it live from /proc without changing it;
-    elsewhere it is the value at import time."""
+    """The process umask, never changed to read it. Linux reads it live from
+    /proc; elsewhere it is the value a child shell reported at import."""
     try:
-        with open("/proc/self/status", encoding="ascii") as fh:
+        with open(_PROC_STATUS, encoding="ascii") as fh:
             for line in fh:
                 if line.startswith("Umask:"):
                     return int(line.split()[1], 8)
     except OSError:
         pass
+    global _IMPORT_UMASK
+    if _IMPORT_UMASK is None:  # /proc existed at import but is unreadable now
+        _IMPORT_UMASK = _read_umask_from_child()
     return _IMPORT_UMASK
 
 
