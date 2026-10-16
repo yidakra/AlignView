@@ -8,6 +8,7 @@
 #SBATCH --error=logs/%x_%j.out
 
 set -euo pipefail
+umask 0007   # project space is shared with the prjs2298 group: group read/write on new files
 SC="/scratch-shared/${USER}"
 CONF="${CONF:-configs/snellius_project.yaml}"   # derived data live in /projects/prjs2298 since 2026-10-07
 QFILE="data/smoke_day1.csv"   # 40 day-1 questions with ground truth
