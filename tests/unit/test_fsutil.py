@@ -56,3 +56,10 @@ def test_embedding_cache_is_group_readable(tmp_path, group_umask, import_umask_0
         ["a", "b"], np.zeros((2, 3), dtype=np.float32), tmp_path / "clips_day1.npz"
     )
     assert stat.S_IMODE(path.stat().st_mode) == 0o660
+
+
+def test_child_shell_reports_the_umask_without_changing_it(group_umask):
+    import castlerag.fsutil as fsutil
+
+    assert fsutil._read_umask_from_child() == 0o007
+    assert os.umask(0o007) == 0o007
