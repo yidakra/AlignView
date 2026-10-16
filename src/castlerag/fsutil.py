@@ -11,13 +11,23 @@ into place.
 from __future__ import annotations
 
 import os
-import threading
 
-_LOCK = threading.Lock()
+
+def _read_umask_by_setting() -> int:
+    mask = os.umask(0o077)
+    os.umask(mask)
+    return mask
+
+
+# Without /proc (macOS) the umask can only be read by setting it, which other
+# threads would briefly see. Read it once at import, before worker threads
+# start, instead of on every call.
+_IMPORT_UMASK = _read_umask_by_setting()
 
 
 def current_umask() -> int:
-    """The process umask, read without changing it where the OS allows."""
+    """The process umask. Linux reads it live from /proc without changing it;
+    elsewhere it is the value at import time."""
     try:
         with open("/proc/self/status", encoding="ascii") as fh:
             for line in fh:
@@ -25,12 +35,7 @@ def current_umask() -> int:
                     return int(line.split()[1], 8)
     except OSError:
         pass
-    # No /proc (macOS): os.umask can only be read by setting it, so set and
-    # restore under a lock to keep concurrent callers in this module safe.
-    with _LOCK:
-        mask = os.umask(0o077)
-        os.umask(mask)
-    return mask
+    return _IMPORT_UMASK
 
 
 def default_file_mode() -> int:
