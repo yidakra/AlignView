@@ -36,6 +36,7 @@ from typing import Dict, List, Optional
 
 from castlerag.config import load_config
 from castlerag.frame_encoding import available_frames
+from castlerag.fsutil import share_tmp_file
 from castlerag.preprocess.media import is_placeholder_or_card
 
 PLACEHOLDER_THRESHOLD = 0.80  # same default as mark_placeholder_windows
@@ -56,6 +57,7 @@ def _rewrite_jsonl(path: Path, rows: List[dict]) -> None:
     if not backup.exists():
         backup.write_bytes(path.read_bytes())
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    share_tmp_file(fd)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             for row in rows:
