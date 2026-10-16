@@ -17,6 +17,7 @@ from typing import Iterable, List, Sequence, TypeVar
 import numpy as np
 from pydantic import BaseModel
 
+from castlerag.fsutil import share_tmp_file
 from castlerag.schemas import (
     AuxRecord,
     ClipRecord,
@@ -88,6 +89,7 @@ def write_embedding_cache(
     fd, tmp_name = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
     )
+    share_tmp_file(fd)  # mkstemp's 0600 would lock teammates out after replace
     try:
         with os.fdopen(fd, "wb") as handle:
             np.savez_compressed(

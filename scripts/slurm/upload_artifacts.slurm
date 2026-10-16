@@ -23,6 +23,7 @@
 # (private) on huggingface.co and run `hf auth login` (write token) on a login
 # node first; the job never handles the token itself.
 set -uo pipefail
+umask 0007   # project space is shared with the prjs2298 group: group read/write on new files
 DAY="${DAY:?set DAY=1..4}"
 case "$DAY" in 1|2|3|4) ;; *) echo "ABORT: DAY must be 1-4"; exit 1;; esac
 REPO="${REPO:-yidakra/castlerag-artifacts}"

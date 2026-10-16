@@ -33,6 +33,7 @@ from typing import List, Optional, Sequence
 from pydantic import BaseModel, Field
 from rank_bm25 import BM25Okapi
 
+from castlerag.fsutil import share_tmp_file
 from castlerag.schemas import ClipRecord, EventSummaryRecord
 
 VISUAL_TEXT_INDEX_NAME = "visual_text.json"
@@ -186,6 +187,7 @@ def build_visual_bm25_index(
     fd, tmp_name = tempfile.mkstemp(
         prefix=f".{out_path.name}.", suffix=".tmp", dir=out_path.parent
     )
+    share_tmp_file(fd)  # mkstemp's 0600 would lock teammates out after replace
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             # JSON, not pickle: the cache dir is treated as untrusted input

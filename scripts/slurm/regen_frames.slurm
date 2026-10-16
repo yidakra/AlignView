@@ -14,6 +14,7 @@
 # Optional: CONF (default configs/snellius_project.yaml), VIDEO_ROOT (dir
 # holding dayN/ if the video moved since ingest), WORKERS (default 48).
 set -uo pipefail
+umask 0007   # project space is shared with the prjs2298 group: group read/write on new files
 DAY="${DAY:?set DAY=1..4}"
 case "$DAY" in 1|2|3|4) ;; *) echo "ABORT: DAY must be 1-4"; exit 1;; esac
 CONF="${CONF:-configs/snellius_project.yaml}"   # derived data live in /projects/prjs2298 since 2026-10-07

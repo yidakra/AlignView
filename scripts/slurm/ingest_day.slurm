@@ -54,6 +54,7 @@
 #SBATCH --error=logs/%x_%j.out
 
 set -uo pipefail   # no -e: per-camera failures are handled explicitly
+umask 0007   # project space is shared with the prjs2298 group: group read/write on new files
 
 DAY="${DAY:-1}"
 case "${DAY}" in
