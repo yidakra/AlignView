@@ -23,6 +23,7 @@
 #SBATCH --error=logs/%x_%j.out
 
 set -euo pipefail
+umask 0007   # project space is shared with the prjs2298 group: group read/write on new files
 
 CONF="${CONF:-configs/snellius_project.yaml}"   # derived data live in /projects/prjs2298 since 2026-10-07
 DAY="${DAY:-}"   # e.g. DAY=day1: pin retrieval to day 1 for questions that name no day (multi-day index)

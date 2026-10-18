@@ -33,6 +33,7 @@ from typing import List, Optional, Sequence
 from pydantic import BaseModel, Field
 from rank_bm25 import BM25Okapi
 
+from castlerag.fsutil import share_tmp_file
 from castlerag.schemas import ClipRecord, EventSummaryRecord
 
 VISUAL_TEXT_INDEX_NAME = "visual_text.json"
@@ -188,6 +189,7 @@ def build_visual_bm25_index(
     )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            share_tmp_file(fh.fileno())  # mkstemp's 0600 would lock the group out
             # JSON, not pickle: the cache dir is treated as untrusted input
             # elsewhere (np.load(..., allow_pickle=False)), and a query-time
             # artifact must fail closed rather than execute code on load.

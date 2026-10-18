@@ -18,6 +18,7 @@
 # FORCE=1, because by then the project copy is authoritative. See
 # docs/ingest_all_days.md, "Move to the project space".
 set -uo pipefail
+umask 0007   # project space is shared with the prjs2298 group: group read/write on new files
 DAYS="${DAYS:-1 2 3 4}"
 SRC_CONF="${SRC_CONF:-configs/snellius_fixedcams.yaml}"
 DST_CONF="${DST_CONF:-configs/snellius_project.yaml}"
