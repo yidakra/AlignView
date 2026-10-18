@@ -138,6 +138,8 @@ fi
 HOURS="${HOURS:-${DEFAULT_HOURS}}"
 
 # --- Qdrant on the EXISTING persisted storage (no create-collection, ever) ---
+source scripts/slurm/qdrant_lock.sh
+qdrant_lock "${QSTORE}" || exit 4   # one Qdrant per storage folder; see qdrant_lock.sh
 export QDRANT__STORAGE__STORAGE_PATH="${QSTORE}/storage"
 QSNAP="$(dirname "${QSTORE}")/qdrant_snapshots"
 export QDRANT__STORAGE__SNAPSHOTS_PATH="${QSNAP}"
@@ -146,7 +148,7 @@ QLOG="${L}_qdrant_${J}.log"
 "${HOME}/qdrant/qdrant" > "${QLOG}" 2>&1 &
 QP=$!
 PIDS_TO_KILL="${QP}"
-trap 'kill ${PIDS_TO_KILL} 2>/dev/null' EXIT
+trap 'kill ${PIDS_TO_KILL} 2>/dev/null; qdrant_unlock' EXIT
 wait_ready "http://localhost:6333/readyz" qdrant "${QLOG}" "${QP}" || exit 1
 
 # --- Phase 0: state check -------------------------------------------------

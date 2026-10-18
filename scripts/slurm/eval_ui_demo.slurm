@@ -66,9 +66,11 @@ CUDA_VISIBLE_DEVICES=1 vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8201 \
     --served-model-name Qwen/Qwen3-VL-8B-Instruct qwen3vl \
     --gpu-memory-utilization 0.90 --max-model-len 49152 --trust-remote-code \
     > logs/eval_vllm_${SLURM_JOB_ID}.log 2>&1 &
+source scripts/slurm/qdrant_lock.sh
+qdrant_lock "${QSTORE}" || exit 4   # one Qdrant per storage folder; see qdrant_lock.sh
 export QDRANT__STORAGE__STORAGE_PATH="${QSTORE}/storage"
 "${HOME}/qdrant/qdrant" > logs/eval_qdrant_${SLURM_JOB_ID}.log 2>&1 &
-trap 'kill $(jobs -p) 2>/dev/null' EXIT
+trap 'kill $(jobs -p) 2>/dev/null; qdrant_unlock' EXIT
 
 require_ready qdrant http://localhost:6333/readyz   logs/eval_qdrant_${SLURM_JOB_ID}.log
 require_embed http://localhost:8200/v1/models
