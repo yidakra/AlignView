@@ -96,6 +96,11 @@ RAW="${DATA_ROOT}/main/day${DAY}"
 CHUNKS="${CHUNKS_DIR}/day${DAY}"
 EMB="${EMB_DIR}"
 QSTORE="${QDRANT_STORAGE:-${SC}/qdrant_storage}"
+# One Qdrant per storage folder: take the lock before any server starts, so a
+# refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
+source scripts/slurm/qdrant_lock.sh
+qdrant_lock "${QSTORE}" || exit 4
+trap 'qdrant_unlock' EXIT
 echo "${T} paths: raw=${RAW} chunks=${CHUNKS} emb=${EMB} qdrant=${QSTORE}"
 
 wait_ready() { # url label logfile pid
@@ -138,8 +143,6 @@ fi
 HOURS="${HOURS:-${DEFAULT_HOURS}}"
 
 # --- Qdrant on the EXISTING persisted storage (no create-collection, ever) ---
-source scripts/slurm/qdrant_lock.sh
-qdrant_lock "${QSTORE}" || exit 4   # one Qdrant per storage folder; see qdrant_lock.sh
 export QDRANT__STORAGE__STORAGE_PATH="${QSTORE}/storage"
 QSNAP="$(dirname "${QSTORE}")/qdrant_snapshots"
 export QDRANT__STORAGE__SNAPSHOTS_PATH="${QSNAP}"
