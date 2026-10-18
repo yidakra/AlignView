@@ -172,35 +172,67 @@ def test_unlock_only_removes_own_lock(env):
 
 
 @pytest.mark.parametrize(
-    "mode,taken",
+    "mode,contender,taken",
     [
-        ("empty", True),
-        ("invalid", True),
-        ("running", False),
-        ("error", False),
+        ("invalid", "bob", True),  # controller: no such job, for anyone
+        ("empty", "alice", True),  # own job no longer listed
+        ("empty", "bob", False),  # another user's job may just be hidden
+        ("running", "bob", False),
+        ("error", "alice", False),
     ],
 )
-def test_no_sacct_record_falls_back_to_squeue(env, mode, taken):
+def test_no_sacct_record_falls_back_to_squeue(env, mode, contender, taken):
     tmp, states, base = env
     store = tmp / "qdrant_storage"
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
-    states.write_text("")  # record purged or no accounting
-    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob", SQUEUE_MODE=mode), 202)
+    states.write_text("")  # record purged, no accounting, or hidden
+    r = run(f'qdrant_lock "{store}"', dict(base, USER=contender, SQUEUE_MODE=mode), 202)
     assert (r.returncode == 0) is taken, r.stderr
-    assert holder(store) == (["bob", "202"] if taken else ["alice", "101"])
+    assert holder(store) == ([contender, "202"] if taken else ["alice", "101"])
 
 
-def test_stale_takeover_mutex_is_cleared(env):
+def test_mutex_of_ended_job_is_cleared(env):
+    tmp, states, base = env
+    store = tmp / "qdrant_storage"
+    assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
+    states.write_text("101 COMPLETED\n777 CANCELLED\n")
+    mutex = store / ".castlerag-qdrant.lock.takeover"
+    mutex.mkdir()
+    (mutex / "owner").write_text("dave 777 gcn9 2026-01-01T00:00:00\n")
+    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
+    assert r.returncode == 0, r.stderr
+    assert "cleared a takeover mutex left by ended job 777" in r.stdout
+    assert holder(store) == ["bob", "202"]
+    assert not mutex.exists()
+
+
+def test_mutex_of_live_job_is_never_cleared(env):
+    tmp, states, base = env
+    store = tmp / "qdrant_storage"
+    assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
+    states.write_text("101 COMPLETED\n777 RUNNING\n")
+    mutex = store / ".castlerag-qdrant.lock.takeover"
+    mutex.mkdir()
+    (mutex / "owner").write_text("dave 777 gcn9 2026-01-01T00:00:00\n")
+    old = mutex.stat().st_mtime - 3600  # age alone must not matter
+    os.utime(mutex, (old, old))
+    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
+    assert r.returncode == 4
+    assert (mutex / "owner").read_text().split()[:2] == ["dave", "777"]
+    assert holder(store) == ["alice", "101"]
+
+
+def test_ownerless_mutex_is_cleared_only_when_old(env):
     tmp, states, base = env
     store = tmp / "qdrant_storage"
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
     states.write_text("101 COMPLETED\n")
     mutex = store / ".castlerag-qdrant.lock.takeover"
     mutex.mkdir()
+    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
+    assert r.returncode == 4  # fresh: a contender may be about to record itself
     old = mutex.stat().st_mtime - 3600
     os.utime(mutex, (old, old))
     r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
     assert r.returncode == 0, r.stderr
-    assert "cleared a takeover mutex" in r.stdout
     assert holder(store) == ["bob", "202"]
-    assert not mutex.exists()
