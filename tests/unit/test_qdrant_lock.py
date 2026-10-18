@@ -28,6 +28,19 @@ def env(tmp_path):
         f'awk -v j="$job" \'$1==j {{print $2}}\' "{states}"\n'
     )
     sacct.chmod(0o755)
+    # Fake squeue: SQUEUE_MODE=running (default) | empty | invalid | error
+    squeue = bindir / "squeue"
+    squeue.write_text(
+        "#!/bin/sh\n"
+        'case "${SQUEUE_MODE:-running}" in\n'
+        "  running) echo RUNNING ;;\n"
+        "  empty) ;;\n"
+        "  invalid) echo 'slurm_load_jobs error: Invalid job id specified' >&2;"
+        " exit 1 ;;\n"
+        "  error) echo 'Socket timed out on send/recv operation' >&2; exit 1 ;;\n"
+        "esac\n"
+    )
+    squeue.chmod(0o755)
     base = dict(
         os.environ,
         PATH=f"{bindir}:{os.environ['PATH']}",
@@ -36,6 +49,7 @@ def env(tmp_path):
     )
     base.pop("FAIL_SACCT", None)
     base.pop("REWRITE_LOCK", None)
+    base.pop("SQUEUE_MODE", None)
     return tmp_path, states, base
 
 
@@ -155,3 +169,38 @@ def test_unlock_only_removes_own_lock(env):
     other = f'QDRANT_LOCK_FILE="{lock}" QDRANT_LOCK_ID=other qdrant_unlock'
     assert run(other, base, 303).returncode == 0
     assert lock.exists()
+
+
+@pytest.mark.parametrize(
+    "mode,taken",
+    [
+        ("empty", True),
+        ("invalid", True),
+        ("running", False),
+        ("error", False),
+    ],
+)
+def test_no_sacct_record_falls_back_to_squeue(env, mode, taken):
+    tmp, states, base = env
+    store = tmp / "qdrant_storage"
+    assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
+    states.write_text("")  # record purged or no accounting
+    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob", SQUEUE_MODE=mode), 202)
+    assert (r.returncode == 0) is taken, r.stderr
+    assert holder(store) == (["bob", "202"] if taken else ["alice", "101"])
+
+
+def test_stale_takeover_mutex_is_cleared(env):
+    tmp, states, base = env
+    store = tmp / "qdrant_storage"
+    assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
+    states.write_text("101 COMPLETED\n")
+    mutex = store / ".castlerag-qdrant.lock.takeover"
+    mutex.mkdir()
+    old = mutex.stat().st_mtime - 3600
+    os.utime(mutex, (old, old))
+    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
+    assert r.returncode == 0, r.stderr
+    assert "cleared a takeover mutex" in r.stdout
+    assert holder(store) == ["bob", "202"]
+    assert not mutex.exists()
