@@ -10,18 +10,31 @@
 #   trap 'qdrant_unlock' EXIT           # later traps keep "; qdrant_unlock"
 #
 # The lock file records user, Slurm job id, host and time. It is taken over
-# only when sacct says the holder job has ended; anything else (running,
-# pending, requeued, unknown, or sacct failing) keeps the lock, so a Slurm
+# only when Slurm positively says the holder job has ended (a final state in
+# sacct, or squeue no longer knowing the job); anything else (running,
+# pending, requeued, unknown, or Slurm errors) keeps the lock, so a Slurm
 # hiccup can never put two servers on one index.
 
 _qdrant_job_ended() {
-  # 0 only if sacct positively reports a final state for job $1.
-  local state
-  state="$(sacct -j "$1" -X -n -o State 2>/dev/null | head -1 | awk '{print $1}')" || return 1
-  case "$state" in
-    COMPLETED|FAILED|CANCELLED*|TIMEOUT|OUT_OF_MEMORY|NODE_FAIL|PREEMPTED|BOOT_FAIL|DEADLINE) return 0 ;;
-    *) return 1 ;;
-  esac
+  # 0 only if Slurm positively says job $1 is over. sacct is asked first over
+  # the whole history; if it has no record (purged, no accounting), squeue
+  # decides: an empty answer or "Invalid job id" means the controller no
+  # longer knows the job. Any other outcome, including errors, means "maybe
+  # still running", which keeps the lock.
+  local state out err rc
+  state="$(sacct -j "$1" -X -n -S 2000-01-01 -o State 2>/dev/null | head -1 | awk '{print $1}')"
+  if [ -n "$state" ]; then
+    case "$state" in
+      COMPLETED|FAILED|CANCELLED*|TIMEOUT|OUT_OF_MEMORY|NODE_FAIL|PREEMPTED|BOOT_FAIL|DEADLINE) return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+  err="$(mktemp)"
+  out="$(squeue -h -j "$1" -o %T 2>"$err")"; rc=$?
+  if [ $rc -eq 0 ] && [ -z "$out" ]; then rm -f "$err"; return 0; fi
+  if [ $rc -ne 0 ] && grep -qi "invalid job id" "$err"; then rm -f "$err"; return 0; fi
+  rm -f "$err"
+  return 1
 }
 
 _qdrant_read_holder() {
@@ -69,8 +82,16 @@ qdrant_lock() {
   # still holds the line read above, so two contenders can't both win.
   mutex="${QDRANT_LOCK_FILE}.takeover"
   if ! mkdir "$mutex" 2>/dev/null; then
-    echo "[qdrant-lock] ABORT: another job is taking over the stale lock right now ($mutex). Retry in a minute; remove $mutex by hand if it is older than that." >&2
-    return 4
+    # A takeover takes well under a second; a mutex older than this was left
+    # by a job killed mid-takeover, so clear it once and retry.
+    local stale_after="${QDRANT_LOCK_MUTEX_STALE_SECONDS:-60}" age
+    age=$(( $(date +%s) - $(stat -c %Y "$mutex" 2>/dev/null || stat -f %m "$mutex" 2>/dev/null || date +%s) ))
+    if [ "$age" -gt "$stale_after" ] && rmdir "$mutex" 2>/dev/null && mkdir "$mutex" 2>/dev/null; then
+      echo "[qdrant-lock] cleared a takeover mutex left ${age}s ago by a killed job"
+    else
+      echo "[qdrant-lock] ABORT: another job is taking over the stale lock right now ($mutex). Retry in a minute." >&2
+      return 4
+    fi
   fi
   if [ "$(head -1 "$QDRANT_LOCK_FILE" 2>/dev/null)" != "$QDRANT_HOLDER" ]; then
     rmdir "$mutex"
