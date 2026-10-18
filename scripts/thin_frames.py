@@ -40,6 +40,7 @@ from castlerag.frame_encoding import (
     resolve_frame_path,
     sample_frames_evenly,
 )
+from castlerag.fsutil import share_tmp_file
 
 PLAN_NAME = ".thin_plan.json"
 # Stats and unlinks are metadata operations on a shared filesystem (GPFS on
@@ -96,6 +97,7 @@ def _rewrite_jsonl(path: Path, rows: List[dict]) -> None:
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            share_tmp_file(fh.fileno())  # mkstemp's 0600 would lock the group out
             for row in rows:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
             fh.flush()
@@ -191,6 +193,7 @@ def _write_plan(path: Path, dropped: Set[str]) -> None:
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            share_tmp_file(fh.fileno())  # mkstemp's 0600 would lock the group out
             json.dump(sorted(dropped), fh)
             fh.flush()
             os.fsync(fh.fileno())
