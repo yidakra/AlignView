@@ -20,6 +20,11 @@ cd "${SLURM_SUBMIT_DIR}"
 PATHS="$(castlerag paths --config "${CONF}")" || { echo "ABORT: castlerag paths failed for ${CONF}"; exit 1; }
 eval "${PATHS}"
 QSTORE="${QDRANT_STORAGE:-${SC}/qdrant_storage}"
+# One Qdrant per storage folder: take the lock before any server starts, so a
+# refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
+source scripts/slurm/qdrant_lock.sh
+qdrant_lock "${QSTORE}" || exit 4
+trap 'qdrant_unlock' EXIT
 
 wait_ready() {
   for _ in $(seq 1 120); do curl -sf "$1" >/dev/null 2>&1 && return 0; sleep 10; done; return 1
@@ -69,7 +74,7 @@ CUDA_VISIBLE_DEVICES=1 vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8201 \
     > logs/eval_vllm_${SLURM_JOB_ID}.log 2>&1 &
 export QDRANT__STORAGE__STORAGE_PATH="${QSTORE}/storage"
 "${HOME}/qdrant/qdrant" > logs/eval_qdrant_${SLURM_JOB_ID}.log 2>&1 &
-trap 'kill $(jobs -p) 2>/dev/null' EXIT
+trap 'kill $(jobs -p) 2>/dev/null; qdrant_unlock' EXIT
 
 require_ready qdrant http://localhost:6333/readyz   logs/eval_qdrant_${SLURM_JOB_ID}.log
 require_embed http://localhost:8200/v1/models
