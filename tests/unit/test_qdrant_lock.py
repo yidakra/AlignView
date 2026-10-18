@@ -236,3 +236,21 @@ def test_ownerless_mutex_is_cleared_only_when_old(env):
     r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
     assert r.returncode == 0, r.stderr
     assert holder(store) == ["bob", "202"]
+
+
+def test_mutex_left_outside_slurm_is_cleared_only_when_old(env):
+    tmp, states, base = env
+    store = tmp / "qdrant_storage"
+    assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
+    states.write_text("101 COMPLETED\n")
+    mutex = store / ".castlerag-qdrant.lock.takeover"
+    mutex.mkdir()
+    (mutex / "owner").write_text("dave nojob laptop 2026-01-01T00:00:00\n")
+    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
+    assert r.returncode == 4  # fresh: that run may still be mid-takeover
+    old = mutex.stat().st_mtime - 3600
+    os.utime(mutex, (old, old))
+    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
+    assert r.returncode == 0, r.stderr
+    assert holder(store) == ["bob", "202"]
+    assert not list(store.glob(".castlerag-qdrant.lock.takeover.stale.*"))

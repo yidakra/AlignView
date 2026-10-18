@@ -60,16 +60,20 @@ _qdrant_mutex_take() {
     printf '%s\n' "$QDRANT_LOCK_ID" > "$mutex/owner"
     return 0
   fi
+  local age
+  age=$(( $(date +%s) - $(stat -c %Y "$mutex" 2>/dev/null || stat -f %m "$mutex" 2>/dev/null || date +%s) ))
   if _qdrant_read_line "$mutex/owner"; then
     read -r owner_user owner_job rest <<< "$QDRANT_LINE"
-    if [ "$owner_job" = "nojob" ] || ! _qdrant_job_ended "$owner_job" "$owner_user"; then
+    if [ "$owner_job" = "nojob" ]; then
+      # Owner ran outside Slurm, so there is no job to ask about: a takeover
+      # takes well under a second, so only a clearly old mutex is stale.
+      [ "$age" -gt "${QDRANT_LOCK_MUTEX_STALE_SECONDS:-60}" ] || return 1
+    elif ! _qdrant_job_ended "$owner_job" "$owner_user"; then
       return 1   # a live (or unknowable) contender holds it
     fi
   else
     # No owner recorded: a job died between mkdir and writing the owner.
     # That window is microseconds, so only a clearly old dir counts.
-    local age
-    age=$(( $(date +%s) - $(stat -c %Y "$mutex" 2>/dev/null || stat -f %m "$mutex" 2>/dev/null || date +%s) ))
     [ "$age" -gt "${QDRANT_LOCK_MUTEX_STALE_SECONDS:-60}" ] || return 1
     QDRANT_LINE=""
   fi
@@ -77,7 +81,11 @@ _qdrant_mutex_take() {
   moved="${mutex}.stale.$$.${RANDOM}"
   mv "$mutex" "$moved" 2>/dev/null || return 1
   if [ "$(head -1 "$moved/owner" 2>/dev/null || true)" != "$QDRANT_LINE" ]; then
-    mv "$moved" "$mutex" 2>/dev/null || true   # not what we judged: put it back
+    # Not the mutex we judged: a contender replaced it in between. Never move
+    # it back (mv into a recreated dir would nest); drop it. Its owner checks
+    # that its mutex is still its own before touching the lock, so it backs
+    # off and retries.
+    rm -rf "$moved"
     return 1
   fi
   rm -rf "$moved"
