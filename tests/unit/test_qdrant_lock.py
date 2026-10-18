@@ -50,6 +50,7 @@ def env(tmp_path):
     base.pop("FAIL_SACCT", None)
     base.pop("REWRITE_LOCK", None)
     base.pop("SQUEUE_MODE", None)
+    base.pop("QDRANT_LOCK_MUTEX_STALE_SECONDS", None)  # tests rely on the default
     return tmp_path, states, base
 
 
