@@ -73,11 +73,13 @@ CUDA_VISIBLE_DEVICES=1 vllm serve Qwen/Qwen3-VL-8B-Instruct \
     > "${GEN_LOG}" 2>&1 &
 GEN_PID=$!
 # --- Qdrant against EXISTING persisted storage (NO create-collection) ---
+source scripts/slurm/qdrant_lock.sh
+qdrant_lock "${QSTORE}" || exit 4   # one Qdrant per storage folder; see qdrant_lock.sh
 export QDRANT__STORAGE__STORAGE_PATH="${QSTORE}/storage"
 QLOG="logs/smoke_qdrant_${SLURM_JOB_ID}.log"
 "${HOME}/qdrant/qdrant" > "${QLOG}" 2>&1 &
 QPID=$!
-trap 'kill $EMB_PID $GEN_PID $QPID 2>/dev/null' EXIT
+trap 'kill $EMB_PID $GEN_PID $QPID 2>/dev/null; qdrant_unlock' EXIT
 
 wait_ready "http://localhost:6333/readyz" qdrant "${QLOG}" $QPID
 wait_ready "http://localhost:8200/v1/models" embed "${EMB_LOG}" $EMB_PID
