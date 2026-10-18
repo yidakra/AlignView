@@ -17,6 +17,7 @@ from typing import Iterable, List, Sequence, TypeVar
 import numpy as np
 from pydantic import BaseModel
 
+from castlerag.fsutil import share_tmp_file
 from castlerag.schemas import (
     AuxRecord,
     ClipRecord,
@@ -90,6 +91,7 @@ def write_embedding_cache(
     )
     try:
         with os.fdopen(fd, "wb") as handle:
+            share_tmp_file(handle.fileno())  # mkstemp's 0600 would lock the group out
             np.savez_compressed(
                 handle,
                 record_ids=np.asarray(record_ids, dtype=str),
