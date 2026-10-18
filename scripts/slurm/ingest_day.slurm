@@ -97,6 +97,11 @@ RAW="${DATA_ROOT}/main/day${DAY}"
 CHUNKS="${CHUNKS_DIR}/day${DAY}"
 EMB="${EMB_DIR}"
 QSTORE="${QDRANT_STORAGE:-${SC}/qdrant_storage}"
+# One Qdrant per storage folder: take the lock before any server starts, so a
+# refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
+source scripts/slurm/qdrant_lock.sh
+qdrant_lock "${QSTORE}" || exit 4
+trap 'qdrant_unlock' EXIT
 echo "${T} paths: raw=${RAW} chunks=${CHUNKS} emb=${EMB} qdrant=${QSTORE}"
 
 wait_ready() { # url label logfile pid
@@ -147,7 +152,7 @@ QLOG="${L}_qdrant_${J}.log"
 "${HOME}/qdrant/qdrant" > "${QLOG}" 2>&1 &
 QP=$!
 PIDS_TO_KILL="${QP}"
-trap 'kill ${PIDS_TO_KILL} 2>/dev/null' EXIT
+trap 'kill ${PIDS_TO_KILL} 2>/dev/null; qdrant_unlock' EXIT
 wait_ready "http://localhost:6333/readyz" qdrant "${QLOG}" "${QP}" || exit 1
 
 # --- Phase 0: state check -------------------------------------------------
