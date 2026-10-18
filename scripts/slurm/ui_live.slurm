@@ -42,6 +42,11 @@ cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 PATHS="$(castlerag paths --config "${CONF}")" || { echo "ABORT: castlerag paths failed for ${CONF}"; exit 1; }
 eval "${PATHS}"
 QSTORE="${QDRANT_STORAGE:-${SC}/qdrant_storage}"
+# One Qdrant per storage folder: take the lock before any server starts, so a
+# refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
+source scripts/slurm/qdrant_lock.sh
+qdrant_lock "${QSTORE}" || exit 4
+trap 'qdrant_unlock' EXIT
 mkdir -p logs
 echo "[ui] config=${CONF} qdrant_storage=${QSTORE}"
 
@@ -71,8 +76,6 @@ CUDA_VISIBLE_DEVICES=1 vllm serve Qwen/Qwen3-VL-8B-Instruct \
     > "${GEN_LOG}" 2>&1 &
 GEN_PID=$!
 # --- Qdrant against the EXISTING persisted storage (NO create-collection) ---
-source scripts/slurm/qdrant_lock.sh
-qdrant_lock "${QSTORE}" || exit 4   # one Qdrant per storage folder; see qdrant_lock.sh
 export QDRANT__STORAGE__STORAGE_PATH="${QSTORE}/storage"
 QLOG="logs/ui_qdrant_${SLURM_JOB_ID}.log"
 "${HOME}/qdrant/qdrant" > "${QLOG}" 2>&1 &

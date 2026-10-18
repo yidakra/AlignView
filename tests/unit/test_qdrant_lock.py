@@ -11,22 +11,32 @@ HELPER = Path(__file__).resolve().parents[2] / "scripts" / "slurm" / "qdrant_loc
 
 @pytest.fixture
 def env(tmp_path):
-    """A fake `squeue` that reports RUNNING for job ids listed in running.txt."""
+    """A fake `sacct`: states.txt maps "<job> <STATE>"; FAIL_SACCT=1 makes it
+    fail; REWRITE_LOCK=<path> makes it overwrite that lock (a racing job)."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    running = tmp_path / "running.txt"
-    running.write_text("")
-    squeue = bindir / "squeue"
-    squeue.write_text(
+    states = tmp_path / "states.txt"
+    states.write_text("")
+    sacct = bindir / "sacct"
+    sacct.write_text(
         "#!/bin/sh\n"
+        '[ -n "$FAIL_SACCT" ] && exit 1\n'
+        '[ -n "$REWRITE_LOCK" ] && '
+        'echo "carol 909 gcn9 2026-01-01T00:00:00" > "$REWRITE_LOCK"\n'
         'job=""\n'
         'while [ $# -gt 0 ]; do [ "$1" = "-j" ] && job="$2"; shift; done\n'
-        f'grep -qx "$job" "{running}" && echo RUNNING\n'
-        "exit 0\n"
+        f'awk -v j="$job" \'$1==j {{print $2}}\' "{states}"\n'
     )
-    squeue.chmod(0o755)
-    base = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", USER="alice")
-    return tmp_path, running, base
+    sacct.chmod(0o755)
+    base = dict(
+        os.environ,
+        PATH=f"{bindir}:{os.environ['PATH']}",
+        USER="alice",
+        QDRANT_LOCK_READ_TRIES="1",
+    )
+    base.pop("FAIL_SACCT", None)
+    base.pop("REWRITE_LOCK", None)
+    return tmp_path, states, base
 
 
 def run(script, env, job):
@@ -42,49 +52,88 @@ def run(script, env, job):
     )
 
 
+def holder(store):
+    return (store / ".castlerag-qdrant.lock").read_text().split()[:2]
+
+
 def test_first_job_takes_the_lock(env):
     tmp, _, base = env
     store = tmp / "qdrant_storage"
     r = run(f'qdrant_lock "{store}"', base, 101)
     assert r.returncode == 0, r.stderr
-    assert (store / ".castlerag-qdrant.lock").read_text().split()[:2] == [
-        "alice",
-        "101",
-    ]
+    assert holder(store) == ["alice", "101"]
 
 
-def test_second_job_is_refused_while_holder_runs(env):
-    tmp, running, base = env
+@pytest.mark.parametrize("state", ["RUNNING", "PENDING", "REQUEUED", "UNKNOWN", ""])
+def test_lock_kept_unless_holder_has_ended(env, state):
+    tmp, states, base = env
     store = tmp / "qdrant_storage"
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
-    running.write_text("101\n")
+    states.write_text(f"101 {state}\n" if state else "")
     r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
     assert r.returncode == 4
     assert "in use by alice's job 101" in r.stderr
+    assert holder(store) == ["alice", "101"]
 
 
-def test_stale_lock_is_taken_over(env):
-    tmp, running, base = env
-    store = tmp / "qdrant_storage"
-    assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
-    running.write_text("")  # job 101 finished or crashed without unlocking
-    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
-    assert r.returncode == 0, r.stderr
-    assert "stale lock" in r.stdout
-    assert (store / ".castlerag-qdrant.lock").read_text().split()[:2] == ["bob", "202"]
-
-
-def test_unlock_only_removes_own_lock(env):
+def test_sacct_failure_keeps_the_lock(env):
     tmp, _, base = env
     store = tmp / "qdrant_storage"
-    lock = store / ".castlerag-qdrant.lock"
-    r = run(f'qdrant_lock "{store}"; qdrant_unlock; test ! -e "{lock}"', base, 101)
-    assert r.returncode == 0, r.stderr
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
-    # another job's unlock (no matching id) leaves the lock in place
-    other = f'QDRANT_LOCK_FILE="{lock}" QDRANT_LOCK_ID=other qdrant_unlock'
-    assert run(other, base, 303).returncode == 0
-    assert lock.exists()
+    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob", FAIL_SACCT="1"), 202)
+    assert r.returncode == 4
+    assert holder(store) == ["alice", "101"]
+
+
+@pytest.mark.parametrize("state", ["COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"])
+def test_lock_of_ended_job_is_taken_over(env, state):
+    tmp, states, base = env
+    store = tmp / "qdrant_storage"
+    assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
+    states.write_text(f"101 {state}\n")
+    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
+    assert r.returncode == 0, r.stderr
+    assert "took over a stale lock" in r.stdout
+    assert holder(store) == ["bob", "202"]
+    assert not (store / ".castlerag-qdrant.lock.takeover").exists()
+
+
+def test_takeover_refused_while_another_job_holds_the_mutex(env):
+    tmp, states, base = env
+    store = tmp / "qdrant_storage"
+    assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
+    states.write_text("101 COMPLETED\n")
+    (store / ".castlerag-qdrant.lock.takeover").mkdir()
+    r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
+    assert r.returncode == 4
+    assert "taking over the stale lock right now" in r.stderr
+    assert holder(store) == ["alice", "101"]
+
+
+def test_takeover_refused_if_lock_changes_hands_mid_check(env):
+    tmp, states, base = env
+    store = tmp / "qdrant_storage"
+    lock = store / ".castlerag-qdrant.lock"
+    assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
+    states.write_text("101 COMPLETED\n")
+    # carol's job grabs the lock while bob is asking sacct about alice's
+    r = run(
+        f'qdrant_lock "{store}"', dict(base, USER="bob", REWRITE_LOCK=str(lock)), 202
+    )
+    assert r.returncode == 4
+    assert "changed hands" in r.stderr
+    assert holder(store) == ["carol", "909"]
+    assert not (store / ".castlerag-qdrant.lock.takeover").exists()
+
+
+def test_empty_or_partial_lock_is_not_taken_over(env):
+    tmp, _, base = env
+    store = tmp / "qdrant_storage"
+    store.mkdir()
+    (store / ".castlerag-qdrant.lock").write_text("")
+    r = run(f'qdrant_lock "{store}"', base, 202)
+    assert r.returncode == 4
+    assert "empty or partial" in r.stderr
 
 
 def test_lock_held_outside_slurm_is_not_taken_over(env):
@@ -94,3 +143,15 @@ def test_lock_held_outside_slurm_is_not_taken_over(env):
     r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
     assert r.returncode == 4
     assert "outside Slurm" in r.stderr
+
+
+def test_unlock_only_removes_own_lock(env):
+    tmp, _, base = env
+    store = tmp / "qdrant_storage"
+    lock = store / ".castlerag-qdrant.lock"
+    r = run(f'qdrant_lock "{store}"; qdrant_unlock; test ! -e "{lock}"', base, 101)
+    assert r.returncode == 0, r.stderr
+    assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
+    other = f'QDRANT_LOCK_FILE="{lock}" QDRANT_LOCK_ID=other qdrant_unlock'
+    assert run(other, base, 303).returncode == 0
+    assert lock.exists()
