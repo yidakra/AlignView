@@ -52,6 +52,16 @@ _qdrant_read_line() {
   return 1
 }
 
+_qdrant_mutex_old() {
+  # 0 if mutex dir $1 is older than QDRANT_LOCK_MUTEX_STALE_SECONDS (default
+  # 600 s), measured now rather than before any slow call.
+  local mtime age
+  mtime="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null)" || return 1
+  [ -n "$mtime" ] || return 1
+  age=$(( $(date +%s) - mtime ))
+  [ "$age" -gt "${QDRANT_LOCK_MUTEX_STALE_SECONDS:-600}" ]
+}
+
 _qdrant_mutex_take() {
   # Take mutex dir $1 for QDRANT_LOCK_ID, clearing it first if its recorded
   # owner job has ended. 0 on success.
@@ -60,21 +70,18 @@ _qdrant_mutex_take() {
     printf '%s\n' "$QDRANT_LOCK_ID" > "$mutex/owner"
     return 0
   fi
-  local age
-  age=$(( $(date +%s) - $(stat -c %Y "$mutex" 2>/dev/null || stat -f %m "$mutex" 2>/dev/null || date +%s) ))
   if _qdrant_read_line "$mutex/owner"; then
     read -r owner_user owner_job rest <<< "$QDRANT_LINE"
     if [ "$owner_job" = "nojob" ]; then
-      # Owner ran outside Slurm, so there is no job to ask about: a takeover
-      # takes well under a second, so only a clearly old mutex is stale.
-      [ "$age" -gt "${QDRANT_LOCK_MUTEX_STALE_SECONDS:-60}" ] || return 1
+      # Owner ran outside Slurm, so there is no job to ask about. A takeover
+      # holds the mutex for microseconds, so only a clearly old one is stale.
+      _qdrant_mutex_old "$mutex" || return 1
     elif ! _qdrant_job_ended "$owner_job" "$owner_user"; then
       return 1   # a live (or unknowable) contender holds it
     fi
   else
     # No owner recorded: a job died between mkdir and writing the owner.
-    # That window is microseconds, so only a clearly old dir counts.
-    [ "$age" -gt "${QDRANT_LOCK_MUTEX_STALE_SECONDS:-60}" ] || return 1
+    _qdrant_mutex_old "$mutex" || return 1
     QDRANT_LINE=""
   fi
   # Move the stale mutex aside atomically and make sure it is the one judged.
