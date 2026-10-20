@@ -99,12 +99,15 @@ with `HOURS=`.
 These are the same steps as `docs/snellius.md` §1-2 (venv `~/castlerag_venv`
 on the 2024 module stack; the jobs use the shared Qdrant binary
 `/projects/prjs2298/bin/qdrant` from `qdrant.binary` in the config, else
-`~/qdrant/qdrant`). The jobs run
-with `HF_HUB_OFFLINE=1`, so download the models into the scratch HF cache once
-on the login node:
+`~/qdrant/qdrant`). The jobs run with `HF_HUB_OFFLINE=1` and load the models
+from the shared cache `/projects/prjs2298/hf_cache` (`slurm.hf_home` in
+`configs/snellius_project.yaml`; `CASTLERAG_HF_HOME` overrides it for one job,
+while an `HF_HOME` from your shell is ignored). That cache is already filled
+for the group. To refill it, download once on the login node:
 
 ```bash
-export HF_HOME=/scratch-shared/$USER/hf_cache
+export HF_HOME=/projects/prjs2298/hf_cache   # the cache the jobs read
+umask 0007                                   # keep it group read/write
 hf download Qwen/Qwen3-VL-8B-Instruct
 hf download Tevatron/Qwen2.5-Omni-7B-Thinker     # OmniEmbed base
 hf download Tevatron/OmniEmbed-v0.1-multivent    # OmniEmbed LoRA
@@ -112,8 +115,9 @@ hf download Qwen/Qwen2.5-Omni-7B                 # OmniEmbed processor
 ```
 
 The model ids are the defaults of `scripts/omniembed_server.py` and of the
-`vllm serve` lines in the job. The HF cache is on scratch too. Every job reads
-it, so it stays in use while you keep running jobs.
+`vllm serve` lines in the job. `Qwen/Qwen2.5-Omni-7B` only needs its tokenizer
+and processor files, so an "incomplete snapshot" for it is expected. A job
+stops before starting any GPU server if `$HF_HOME/hub` is missing.
 
 If `~/castle_archives/*/RESTORE.md` holds an older day-1 index, you can
 restore it (`sha256sum -c SHA256SUMS`, then the `tar` lines in RESTORE.md) and
@@ -123,7 +127,6 @@ skip day 1 in §3. Then run `ingest_day.slurm` with `DAY=1` and the default
 ## 3. Wave 1: days 1 and 2
 
 ```bash
-export HF_HOME=/scratch-shared/$USER/hf_cache
 cd ~/code/CastleRAG
 DL=$(sbatch --parsable --account=gisr109364 --export=ALL,DAYS="1 2" scripts/slurm/download_castle.slurm)
 # ~4.4 TB, roughly 3 h. The ingest chain below waits for $DL (afterok).
