@@ -145,3 +145,43 @@ def test_regen_writes_rebuilt_frames_to_the_new_home(tmp_path: Path, monkeypatch
     assert stats["written"] == 2
     assert all(Path(p.replace(str(old), str(new))).exists() for p in stored)
     assert not old.exists()  # nothing written back to scratch
+
+
+@pytest.mark.parametrize(
+    "script", ["ui_live", "smoke_day1_roomfix", "eval_ui_demo", "ingest_day"]
+)
+@pytest.mark.parametrize(
+    "submit,config,expected",
+    [
+        ("/opt/my/qdrant", "/projects/prjs2298/bin/qdrant", "/opt/my/qdrant"),
+        ("", "/projects/prjs2298/bin/qdrant", "/projects/prjs2298/bin/qdrant"),
+        ("", "", "/home/tester/qdrant/qdrant"),
+    ],
+)
+def test_slurm_qdrant_bin_precedence(script, submit, config, expected):
+    """Submit-time QDRANT_BIN > config qdrant.binary > ~/qdrant/qdrant, even
+    though `castlerag paths` always prints QDRANT_BIN (possibly empty)."""
+    import subprocess
+
+    text = (REPO / "scripts" / "slurm" / f"{script}.slurm").read_text()
+    lines = [
+        ln
+        for ln in text.splitlines()
+        if ln.startswith(("_SUBMIT_QDRANT_", "QSTORE=", "QDRANT_BIN="))
+    ]
+    assert len(lines) == 4, lines
+    paths = f"QDRANT_STORAGE=/projects/prjs2298/qdrant_storage\nQDRANT_BIN='{config}'"
+    snippet = "\n".join(
+        [lines[0], lines[1], f'PATHS="{paths}"', 'eval "${PATHS}"', *lines[2:]]
+    )
+    env = {"PATH": "/usr/bin:/bin", "HOME": "/home/tester", "SC": "/scratch/x"}
+    if submit:
+        env["QDRANT_BIN"] = submit
+    out = subprocess.run(
+        ["bash", "-c", snippet + '\necho "$QDRANT_BIN"'],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == expected

@@ -40,10 +40,13 @@ export VLLM_LOGGING_LEVEL=WARNING
 module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12.6.0 FFmpeg/7.0.2-GCCcore-13.3.0
 source "${HOME}/castlerag_venv/bin/activate"
 cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+# Values exported at submission (sbatch --export) win over the config.
+_SUBMIT_QDRANT_BIN="${QDRANT_BIN:-}"
+_SUBMIT_QDRANT_STORAGE="${QDRANT_STORAGE:-}"
 PATHS="$(castlerag paths --config "${CONF}")" || { echo "ABORT: castlerag paths failed for ${CONF}"; exit 1; }
 eval "${PATHS}"
-QSTORE="${QDRANT_STORAGE:-${SC}/qdrant_storage}"
-QDRANT_BIN="${QDRANT_BIN:-${HOME}/qdrant/qdrant}"   # config qdrant.binary, else your own copy
+QSTORE="${_SUBMIT_QDRANT_STORAGE:-${QDRANT_STORAGE:-${SC}/qdrant_storage}}"
+QDRANT_BIN="${_SUBMIT_QDRANT_BIN:-${QDRANT_BIN:-${HOME}/qdrant/qdrant}}"   # submit > config qdrant.binary > own copy
 [ -x "${QDRANT_BIN}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN} (set qdrant.binary in ${CONF})"; exit 1; }
 # One Qdrant per storage folder: take the lock before any server starts, so a
 # refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
