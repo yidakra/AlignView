@@ -214,13 +214,19 @@ def test_older_slurm_scripts_check_the_binary_before_any_server():
     ):
         lines = (REPO / "scripts" / "slurm" / f"{name}.slurm").read_text().splitlines()
         guard = next(
-            i for i, ln in enumerate(lines) if ln.startswith('[ -x "${QDRANT_BIN')
+            (i for i, ln in enumerate(lines) if ln.startswith('[ -x "${QDRANT_BIN')),
+            None,
         )
         first_bg = next(
-            i
-            for i, ln in enumerate(lines)
-            if not ln.lstrip().startswith("#")
-            and re.search(r"&\s*(\w+=\$!\s*)?$", ln.strip())
-            and not ln.strip().endswith("&&")
+            (
+                i
+                for i, ln in enumerate(lines)
+                if not ln.lstrip().startswith("#")
+                and re.search(r"&\s*(\w+=\$!\s*)?$", ln.strip())
+                and not ln.strip().endswith("&&")
+            ),
+            None,
         )
-        assert guard < first_bg, name
+        assert guard is not None, f"{name}: no Qdrant binary check"
+        assert first_bg is not None, f"{name}: no background server found"
+        assert guard < first_bg, f"{name}: binary check comes after a server starts"
