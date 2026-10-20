@@ -310,6 +310,11 @@ trap 'kill $QDRANT_PID 2>/dev/null' EXIT
 `prjs2298` group. Without it they fall back to `~/qdrant/qdrant`: a single
 static binary you can download once, no sudo required.)
 
+The model cache works the same way: the project jobs load models offline from
+`/projects/prjs2298/hf_cache` (`slurm.hf_home` in the same config), so every
+member of the group can run them. Set `CASTLERAG_HF_HOME` to use another cache
+for one job; an `HF_HOME` from your login shell is ignored on purpose.
+
 ## 7. Incremental ingest (preferred after the first run)
 
 The `--day N` flag is symmetric across `preprocess`, `embed`, and `index`,

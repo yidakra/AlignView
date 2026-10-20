@@ -74,7 +74,7 @@ SKIP_PREPROCESS="${SKIP_PREPROCESS:-0}" # 1 = Phase 1 (base+caption+events) fini
 SNAPSHOT="${SNAPSHOT:-1}"         # 1 = Qdrant snapshot before upserting
 MIN_POINTS="${MIN_POINTS:-25000}" # whole collection; the ego-only day-1 index had 25,920
 BOOTSTRAP="${BOOTSTRAP:-0}"       # 1 = empty scratch: no collection yet (first job only)
-export HF_HOME="${SC}/hf_cache" HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1
+export HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1
 export VLLM_LOGGING_LEVEL=WARNING
 export QDRANT_CLIENT_TIMEOUT="${QDRANT_CLIENT_TIMEOUT:-300}"
 J="${SLURM_JOB_ID}"
@@ -102,6 +102,10 @@ EMB="${EMB_DIR}"
 QSTORE="${_SUBMIT_QDRANT_STORAGE:-${QDRANT_STORAGE:-${SC}/qdrant_storage}}"
 QDRANT_BIN="${_SUBMIT_QDRANT_BIN:-${QDRANT_BIN:-${HOME}/qdrant/qdrant}}"   # submit > config qdrant.binary > own copy
 [ -x "${QDRANT_BIN}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN} (set qdrant.binary in ${CONF})"; exit 1; }
+# Model cache: CASTLERAG_HF_HOME > config slurm.hf_home > scratch. HF_HOME itself is
+# not honoured from the environment, since login shells often set it elsewhere.
+export HF_HOME="${CASTLERAG_HF_HOME:-${HF_HOME_DIR:-${SC}/hf_cache}}"
+[ -d "${HF_HOME}/hub" ] || { echo "ABORT: no model cache at ${HF_HOME}/hub (jobs run offline; set slurm.hf_home in ${CONF})"; exit 1; }
 # One Qdrant per storage folder: take the lock before any server starts, so a
 # refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
 source scripts/slurm/qdrant_lock.sh
