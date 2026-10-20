@@ -72,8 +72,9 @@ trap 'kill $EMB_PID $G0 $G1 $QP 2>/dev/null' EXIT
 
 wait_ready 8201 gen0 "logs/gen0_${J}.log" || exit 1
 wait_ready 8202 gen1 "logs/gen1_${J}.log" || exit 1
-for _q in $(seq 1 60); do curl -sf http://localhost:6333/readyz >/dev/null && break; sleep 1; done
-curl -sf http://localhost:6333/readyz >/dev/null || { echo "[full] ABORT: Qdrant not ready after 60s"; exit 1; }
+_qready=0
+for _q in $(seq 1 60); do curl -sf --max-time 2 http://localhost:6333/readyz >/dev/null && { _qready=1; break; }; sleep 1; done
+[ "${_qready}" = 1 ] || { echo "[full] ABORT: Qdrant not ready after 60 tries"; exit 1; }
 echo "[full] qdrant ready"
 
 # --- FAN OUT: all 10 cameras in parallel, split across the 2 gen servers ---
