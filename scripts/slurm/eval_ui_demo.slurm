@@ -20,6 +20,8 @@ cd "${SLURM_SUBMIT_DIR}"
 PATHS="$(castlerag paths --config "${CONF}")" || { echo "ABORT: castlerag paths failed for ${CONF}"; exit 1; }
 eval "${PATHS}"
 QSTORE="${QDRANT_STORAGE:-${SC}/qdrant_storage}"
+QDRANT_BIN="${QDRANT_BIN:-${HOME}/qdrant/qdrant}"   # config qdrant.binary, else your own copy
+[ -x "${QDRANT_BIN}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN} (set qdrant.binary in ${CONF})"; exit 1; }
 # One Qdrant per storage folder: take the lock before any server starts, so a
 # refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
 source scripts/slurm/qdrant_lock.sh
@@ -73,7 +75,7 @@ CUDA_VISIBLE_DEVICES=1 vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8201 \
     --gpu-memory-utilization 0.90 --max-model-len 49152 --trust-remote-code \
     > logs/eval_vllm_${SLURM_JOB_ID}.log 2>&1 &
 export QDRANT__STORAGE__STORAGE_PATH="${QSTORE}/storage"
-"${HOME}/qdrant/qdrant" > logs/eval_qdrant_${SLURM_JOB_ID}.log 2>&1 &
+"${QDRANT_BIN}" > logs/eval_qdrant_${SLURM_JOB_ID}.log 2>&1 &
 trap 'kill $(jobs -p) 2>/dev/null; qdrant_unlock' EXIT
 
 require_ready qdrant http://localhost:6333/readyz   logs/eval_qdrant_${SLURM_JOB_ID}.log

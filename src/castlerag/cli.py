@@ -792,7 +792,8 @@ def paths(
     """Print the config's storage paths as shell assignments.
 
     For Slurm scripts: ``eval "$(castlerag paths --config "$CONF")"`` sets
-    DATA_ROOT, CHUNKS_DIR, EMB_DIR, FRAMES_DIR, OUTPUTS_DIR and QDRANT_STORAGE, so a job
+    DATA_ROOT, CHUNKS_DIR, EMB_DIR, FRAMES_DIR, OUTPUTS_DIR, QDRANT_STORAGE and
+    QDRANT_BIN, so a job
     takes every derived path from one config instead of hard-coding them.
     """
     import shlex
@@ -810,6 +811,7 @@ def paths(
         "FRAMES_DIR": cfg.preprocessing.frames_dir,
         "OUTPUTS_DIR": cfg.outputs.dir,
         "QDRANT_STORAGE": cfg.qdrant.storage_path or "",
+        "QDRANT_BIN": cfg.qdrant.binary or "",
     }
     for key, value in values.items():
         typer.echo(f"{key}={shlex.quote(str(value))}")

@@ -93,6 +93,7 @@ def test_paths_command_prints_project_config_paths(monkeypatch):
     assert values["CHUNKS_DIR"] == "/projects/prjs2298/castle_derived/chunks"
     assert values["EMB_DIR"] == "/projects/prjs2298/castle_derived/embeddings"
     assert values["QDRANT_STORAGE"] == "/projects/prjs2298/qdrant_storage"
+    assert values["QDRANT_BIN"] == "/projects/prjs2298/bin/qdrant"
     assert values["DATA_ROOT"] == "/scratch-shared/tester/castle2024"
 
 
@@ -104,6 +105,8 @@ def test_paths_command_keeps_scratch_for_the_current_config(monkeypatch):
     assert result.exit_code == 0, result.output
     assert "CHUNKS_DIR=/scratch-shared/tester/castle_derived/chunks" in result.output
     assert "QDRANT_STORAGE=/scratch-shared/tester/qdrant_storage" in result.output
+    # no shared binary configured: the jobs fall back to ~/qdrant/qdrant
+    assert "QDRANT_BIN=''" in result.output
 
 
 def test_paths_command_rejects_a_missing_config(tmp_path: Path):

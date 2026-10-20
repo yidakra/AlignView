@@ -96,6 +96,9 @@ class QdrantConfig(BaseModel):
     # Where the Qdrant server keeps its data; read by the Slurm scripts via
     # `castlerag paths` (the server itself is configured by environment).
     storage_path: Optional[str] = None
+    # The Qdrant server binary the Slurm jobs start, also via `castlerag
+    # paths` (QDRANT_BIN). Unset: each user's ~/qdrant/qdrant.
+    binary: Optional[str] = None
 
 
 class RetrievalConfig(BaseModel):

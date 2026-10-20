@@ -48,6 +48,8 @@ cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 PATHS="$(castlerag paths --config "${CONF}")" || { echo "ABORT: castlerag paths failed for ${CONF}"; exit 1; }
 eval "${PATHS}"
 QSTORE="${QDRANT_STORAGE:-${SC}/qdrant_storage}"
+QDRANT_BIN="${QDRANT_BIN:-${HOME}/qdrant/qdrant}"   # config qdrant.binary, else your own copy
+[ -x "${QDRANT_BIN}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN} (set qdrant.binary in ${CONF})"; exit 1; }
 # One Qdrant per storage folder: take the lock before any server starts, so a
 # refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
 source scripts/slurm/qdrant_lock.sh
@@ -81,7 +83,7 @@ GEN_PID=$!
 # --- Qdrant against EXISTING persisted storage (NO create-collection) ---
 export QDRANT__STORAGE__STORAGE_PATH="${QSTORE}/storage"
 QLOG="logs/smoke_qdrant_${SLURM_JOB_ID}.log"
-"${HOME}/qdrant/qdrant" > "${QLOG}" 2>&1 &
+"${QDRANT_BIN}" > "${QLOG}" 2>&1 &
 QPID=$!
 trap 'kill $EMB_PID $GEN_PID $QPID 2>/dev/null; qdrant_unlock' EXIT
 
