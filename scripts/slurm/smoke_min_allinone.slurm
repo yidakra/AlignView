@@ -67,7 +67,7 @@ trap 'kill $EMB_PID $GEN_PID 2>/dev/null' EXIT
 
 # --- Qdrant (storage on shared scratch) ---
 export QDRANT__STORAGE__STORAGE_PATH="${SC}/qdrant_storage/storage"
-"${HOME}/qdrant/qdrant" > "logs/qdrant_${SLURM_JOB_ID}.log" 2>&1 &
+"${QDRANT_BIN:-${HOME}/qdrant/qdrant}" > "logs/qdrant_${SLURM_JOB_ID}.log" 2>&1 &
 QPID=$!
 trap 'kill $EMB_PID $GEN_PID $QPID 2>/dev/null' EXIT
 

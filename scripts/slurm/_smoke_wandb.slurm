@@ -69,7 +69,7 @@ GEN_PID=$!
 # --- Qdrant against EXISTING persisted storage (NO create-collection) ---
 export QDRANT__STORAGE__STORAGE_PATH="${SC}/qdrant_storage/storage"
 QLOG="logs/smoke_qdrant_${SLURM_JOB_ID}.log"
-"${HOME}/qdrant/qdrant" > "${QLOG}" 2>&1 &
+"${QDRANT_BIN:-${HOME}/qdrant/qdrant}" > "${QLOG}" 2>&1 &
 QPID=$!
 trap 'kill $EMB_PID $GEN_PID $QPID 2>/dev/null' EXIT
 
