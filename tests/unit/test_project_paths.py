@@ -94,6 +94,7 @@ def test_paths_command_prints_project_config_paths(monkeypatch):
     assert values["EMB_DIR"] == "/projects/prjs2298/castle_derived/embeddings"
     assert values["QDRANT_STORAGE"] == "/projects/prjs2298/qdrant_storage"
     assert values["QDRANT_BIN"] == "/projects/prjs2298/bin/qdrant"
+    assert values["HF_HOME_DIR"] == "/projects/prjs2298/hf_cache"
     assert values["DATA_ROOT"] == "/scratch-shared/tester/castle2024"
 
 
@@ -107,6 +108,7 @@ def test_paths_command_keeps_scratch_for_the_current_config(monkeypatch):
     assert "QDRANT_STORAGE=/scratch-shared/tester/qdrant_storage" in result.output
     # no shared binary configured: the jobs fall back to ~/qdrant/qdrant
     assert "QDRANT_BIN=''" in result.output
+    assert "HF_HOME_DIR=''" in result.output
 
 
 def test_paths_command_rejects_a_missing_config(tmp_path: Path):
@@ -230,3 +232,45 @@ def test_older_slurm_scripts_check_the_binary_before_any_server():
         assert guard is not None, f"{name}: no Qdrant binary check"
         assert first_bg is not None, f"{name}: no background server found"
         assert guard < first_bg, f"{name}: binary check comes after a server starts"
+
+
+@pytest.mark.parametrize(
+    "script", ["ui_live", "smoke_day1_roomfix", "eval_ui_demo", "ingest_day"]
+)
+@pytest.mark.parametrize(
+    "override,config,login,expected",
+    [
+        ("/my/cache", "/projects/prjs2298/hf_cache", "", "/my/cache"),
+        ("", "/projects/prjs2298/hf_cache", "", "/projects/prjs2298/hf_cache"),
+        ("", "", "", "/scratch/x/hf_cache"),
+        # an HF_HOME inherited from the login shell must not win over the config
+        (
+            "",
+            "/projects/prjs2298/hf_cache",
+            "/elsewhere",
+            "/projects/prjs2298/hf_cache",
+        ),
+    ],
+)
+def test_slurm_hf_home_precedence(script, override, config, login, expected):
+    import subprocess
+
+    text = (REPO / "scripts" / "slurm" / f"{script}.slurm").read_text()
+    line = next(
+        (ln for ln in text.splitlines() if ln.startswith('export HF_HOME="')), None
+    )
+    assert line is not None, f"{script}: no HF_HOME line"
+    assert text.count("HF_HOME=") == 1, f"{script}: HF_HOME set more than once"
+    env = {"PATH": "/usr/bin:/bin", "SC": "/scratch/x", "HF_HOME_DIR": config}
+    if override:
+        env["CASTLERAG_HF_HOME"] = override
+    if login:
+        env["HF_HOME"] = login
+    out = subprocess.run(
+        ["bash", "-c", line + '\necho "$HF_HOME"'],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == expected

@@ -282,6 +282,9 @@ class SlurmConfig(BaseModel):
     gpus: int = 1
     mail_type: str = "FAIL"
     mail_user: str = ""
+    # Hugging Face cache (HF_HOME) the jobs load models from, printed by
+    # `castlerag paths` as HF_HOME_DIR. Unset: /scratch-shared/$USER/hf_cache.
+    hf_home: Optional[str] = None
 
 
 class RoutingConfig(BaseModel):
