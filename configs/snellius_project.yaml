@@ -28,6 +28,7 @@ qdrant:
   host: "localhost"
   port: 6333
   storage_path: "/projects/prjs2298/qdrant_storage"
+  binary: "/projects/prjs2298/bin/qdrant"   # shared with the prjs2298 group
 outputs:
   dir:             "/projects/prjs2298/castle_outputs"
   predictions:     "/projects/prjs2298/castle_outputs/predictions.json"
