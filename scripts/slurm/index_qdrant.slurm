@@ -47,6 +47,7 @@ export QDRANT__STORAGE__STORAGE_PATH="/scratch-shared/${USER}/qdrant_storage/sto
 # Raise the client httpx timeout (default 60s) for bulk upserts on scratch I/O,
 # which otherwise raise ResponseHandlingException: timed out under heavy load.
 export QDRANT_CLIENT_TIMEOUT="${QDRANT_CLIENT_TIMEOUT:-300}"
+[ -x "${QDRANT_BIN:-${HOME}/qdrant/qdrant}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN:-${HOME}/qdrant/qdrant}"; exit 1; }   # before any server starts
 "${QDRANT_BIN:-${HOME}/qdrant/qdrant}" &
 QDRANT_PID=$!
 trap 'kill $QDRANT_PID 2>/dev/null' EXIT
