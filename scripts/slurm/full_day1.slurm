@@ -65,7 +65,7 @@ CUDA_VISIBLE_DEVICES=1 vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8202 \
 G1=$!
 # --- Qdrant (storage on shared scratch) ---
 export QDRANT__STORAGE__STORAGE_PATH="${SC}/qdrant_storage/storage"
-"${HOME}/qdrant/qdrant" > "logs/qdrant_${J}.log" 2>&1 &
+"${QDRANT_BIN:-${HOME}/qdrant/qdrant}" > "logs/qdrant_${J}.log" 2>&1 &
 QP=$!
 trap 'kill $EMB_PID $G0 $G1 $QP 2>/dev/null' EXIT
 
