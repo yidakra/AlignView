@@ -97,6 +97,8 @@ RAW="${DATA_ROOT}/main/day${DAY}"
 CHUNKS="${CHUNKS_DIR}/day${DAY}"
 EMB="${EMB_DIR}"
 QSTORE="${QDRANT_STORAGE:-${SC}/qdrant_storage}"
+QDRANT_BIN="${QDRANT_BIN:-${HOME}/qdrant/qdrant}"   # config qdrant.binary, else your own copy
+[ -x "${QDRANT_BIN}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN} (set qdrant.binary in ${CONF})"; exit 1; }
 # One Qdrant per storage folder: take the lock before any server starts, so a
 # refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
 source scripts/slurm/qdrant_lock.sh
@@ -149,7 +151,7 @@ QSNAP="$(dirname "${QSTORE}")/qdrant_snapshots"
 export QDRANT__STORAGE__SNAPSHOTS_PATH="${QSNAP}"
 mkdir -p "${QDRANT__STORAGE__SNAPSHOTS_PATH}"
 QLOG="${L}_qdrant_${J}.log"
-"${HOME}/qdrant/qdrant" > "${QLOG}" 2>&1 &
+"${QDRANT_BIN}" > "${QLOG}" 2>&1 &
 QP=$!
 PIDS_TO_KILL="${QP}"
 trap 'kill ${PIDS_TO_KILL} 2>/dev/null; qdrant_unlock' EXIT

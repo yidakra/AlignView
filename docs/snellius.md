@@ -305,8 +305,10 @@ sleep 5
 trap 'kill $QDRANT_PID 2>/dev/null' EXIT
 ```
 
-(Download the qdrant binary once into `~/qdrant/` — single static binary,
-no sudo required.)
+(The project jobs use the shared binary `/projects/prjs2298/bin/qdrant`, set as
+`qdrant.binary` in `configs/snellius_project.yaml` and readable by the
+`prjs2298` group. Without it they fall back to `~/qdrant/qdrant`: a single
+static binary you can download once, no sudo required.)
 
 ## 7. Incremental ingest (preferred after the first run)
 

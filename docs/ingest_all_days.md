@@ -97,7 +97,9 @@ with `HOURS=`.
 ## 2. One-time setup on the new account
 
 These are the same steps as `docs/snellius.md` §1-2 (venv `~/castlerag_venv`
-on the 2024 module stack, Qdrant binary at `~/qdrant/qdrant`). The jobs run
+on the 2024 module stack; the jobs use the shared Qdrant binary
+`/projects/prjs2298/bin/qdrant` from `qdrant.binary` in the config, else
+`~/qdrant/qdrant`). The jobs run
 with `HF_HUB_OFFLINE=1`, so download the models into the scratch HF cache once
 on the login node:
 
