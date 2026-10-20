@@ -158,9 +158,20 @@ def test_regen_writes_rebuilt_frames_to_the_new_home(tmp_path: Path, monkeypatch
         ("", "", "/home/tester/qdrant/qdrant"),
     ],
 )
-def test_slurm_qdrant_bin_precedence(script, submit, config, expected):
-    """Submit-time QDRANT_BIN > config qdrant.binary > ~/qdrant/qdrant, even
-    though `castlerag paths` always prints QDRANT_BIN (possibly empty)."""
+@pytest.mark.parametrize(
+    "submit_store,config_store,expected_store",
+    [
+        ("/my/store", "/projects/prjs2298/qdrant_storage", "/my/store"),
+        ("", "/projects/prjs2298/qdrant_storage", "/projects/prjs2298/qdrant_storage"),
+        ("", "", "/scratch/x/qdrant_storage"),
+    ],
+)
+def test_slurm_qdrant_precedence(
+    script, submit, config, expected, submit_store, config_store, expected_store
+):
+    """Submit-time value > config > default, for both QDRANT_BIN and the
+    storage folder, even though `castlerag paths` always prints both
+    (possibly empty)."""
     import subprocess
 
     text = (REPO / "scripts" / "slurm" / f"{script}.slurm").read_text()
@@ -170,18 +181,46 @@ def test_slurm_qdrant_bin_precedence(script, submit, config, expected):
         if ln.startswith(("_SUBMIT_QDRANT_", "QSTORE=", "QDRANT_BIN="))
     ]
     assert len(lines) == 4, lines
-    paths = f"QDRANT_STORAGE=/projects/prjs2298/qdrant_storage\nQDRANT_BIN='{config}'"
+    paths = f"QDRANT_STORAGE='{config_store}'\nQDRANT_BIN='{config}'"
     snippet = "\n".join(
         [lines[0], lines[1], f'PATHS="{paths}"', 'eval "${PATHS}"', *lines[2:]]
     )
     env = {"PATH": "/usr/bin:/bin", "HOME": "/home/tester", "SC": "/scratch/x"}
     if submit:
         env["QDRANT_BIN"] = submit
+    if submit_store:
+        env["QDRANT_STORAGE"] = submit_store
     out = subprocess.run(
-        ["bash", "-c", snippet + '\necho "$QDRANT_BIN"'],
+        ["bash", "-c", snippet + '\necho "$QDRANT_BIN|$QSTORE"'],
         env=env,
         capture_output=True,
         text=True,
     )
     assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == expected
+    assert out.stdout.strip() == f"{expected}|{expected_store}"
+
+
+def test_older_slurm_scripts_check_the_binary_before_any_server():
+    import re
+
+    for name in (
+        "resume_day1",
+        "resume2_day1",
+        "full_day1",
+        "index_qdrant",
+        "smoke_min_allinone",
+        "_smoke_wandb",
+        "_healthcheck_smoke",
+    ):
+        lines = (REPO / "scripts" / "slurm" / f"{name}.slurm").read_text().splitlines()
+        guard = next(
+            i for i, ln in enumerate(lines) if ln.startswith('[ -x "${QDRANT_BIN')
+        )
+        first_bg = next(
+            i
+            for i, ln in enumerate(lines)
+            if not ln.lstrip().startswith("#")
+            and re.search(r"&\s*(\w+=\$!\s*)?$", ln.strip())
+            and not ln.strip().endswith("&&")
+        )
+        assert guard < first_bg, name

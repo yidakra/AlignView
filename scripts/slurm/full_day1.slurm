@@ -50,6 +50,7 @@ wait_ready() { # port label logfile
 }
 
 # --- GPU2: OmniEmbed server (needed for the embed stage) ---
+[ -x "${QDRANT_BIN:-${HOME}/qdrant/qdrant}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN:-${HOME}/qdrant/qdrant}"; exit 1; }   # before any server starts
 CUDA_VISIBLE_DEVICES=2 python scripts/omniembed_server.py --port 8200 > "logs/omni_${J}.log" 2>&1 &
 EMB_PID=$!
 # --- GPU0 + GPU1: two Qwen3-VL servers for batched captioning (short prompts -> small KV) ---

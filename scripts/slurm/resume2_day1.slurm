@@ -37,6 +37,7 @@ source "${HOME}/castlerag_venv/bin/activate"; cd "${SLURM_SUBMIT_DIR:-$(cd "$(di
 
 wait_ready(){ for i in $(seq 1 150); do curl -sf "http://localhost:$1/v1/models">/dev/null 2>&1 && { echo "[r2] $2 ready ($((i*10))s)";return 0;}; sleep 10; done; echo "[r2] $2 NOT ready"; tail -30 "$3"; return 1; }
 
+[ -x "${QDRANT_BIN:-${HOME}/qdrant/qdrant}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN:-${HOME}/qdrant/qdrant}"; exit 1; }   # before any server starts
 CUDA_VISIBLE_DEVICES=2 python scripts/omniembed_server.py --port 8200 > "logs/r2_omni_${J}.log" 2>&1 & EMB=$!
 CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8201 --served-model-name Qwen/Qwen3-VL-8B-Instruct qwen3vl --gpu-memory-utilization 0.85 --max-model-len 4096 --trust-remote-code > "logs/r2_gen0_${J}.log" 2>&1 & G0=$!
 CUDA_VISIBLE_DEVICES=1 vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8202 --served-model-name Qwen/Qwen3-VL-8B-Instruct qwen3vl --gpu-memory-utilization 0.85 --max-model-len 4096 --trust-remote-code > "logs/r2_gen1_${J}.log" 2>&1 & G1=$!

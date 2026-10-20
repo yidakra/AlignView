@@ -57,6 +57,7 @@ wait_ready() { # url label logfile pid
 
 # --- OmniEmbed (GPU0:8200) — embeds the fresh smoke queries live ---
 EMB_LOG="logs/smoke_omniembed_${SLURM_JOB_ID}.log"
+[ -x "${QDRANT_BIN:-${HOME}/qdrant/qdrant}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN:-${HOME}/qdrant/qdrant}"; exit 1; }   # before any server starts
 CUDA_VISIBLE_DEVICES=0 python scripts/omniembed_server.py --port 8200 > "${EMB_LOG}" 2>&1 &
 EMB_PID=$!
 # --- Qwen3-VL generation/rerank (GPU1:8201) ---
