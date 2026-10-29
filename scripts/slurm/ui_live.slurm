@@ -112,6 +112,11 @@ export CASTLERAG_CONFIG="${CONF}"                      # host paths (cache_dir, 
 export OMNIEMBED_BASE_URL="http://localhost:8200/v1"   # OmniEmbed query embeddings
 export VLLM_BASE_URL="http://localhost:8201/v1"        # Qwen3-VL rerank + generation
 # NOTE: OMNIEMBED_QUERY_CACHE intentionally UNSET so arbitrary UI queries embed live.
+# CASTLERAG_STUDY_LOG (opt-in, pass via --export) turns on the user-study
+# interaction log; left unset, nothing is logged. See docs/demo.md.
+if [ -n "${CASTLERAG_STUDY_LOG:-}" ]; then
+    echo "[ui] study interaction log -> ${CASTLERAG_STUDY_LOG}"
+fi
 
 NODE="$(hostname)"
 cat <<EOF

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Optional
 from castlerag.ui.callbacks import register_callbacks
 from castlerag.ui.chat import ChatEngine
 from castlerag.ui.layout import build_layout
+from castlerag.ui.study_log import StudyLog
 from castlerag.ui.youtube import YouTubeMirror
 
 if TYPE_CHECKING:
@@ -63,13 +64,22 @@ def build_app(
     )
     score_mode: str = getattr(getattr(cfg, "ui", None), "score_mode", "rrf_normalized")
 
+    # Opt-in user-study interaction log (CASTLERAG_STUDY_LOG); off by default.
+    study_log = StudyLog.from_env()
+
     app = Dash(__name__, title="CastleRAG")
     app.layout = dmc.MantineProvider(
-        build_layout(mirror, mode=engine_mode(engine), score_mode=score_mode, cfg=cfg),
+        build_layout(
+            mirror,
+            mode=engine_mode(engine),
+            score_mode=score_mode,
+            cfg=cfg,
+            study=study_log.enabled,
+        ),
         theme=THEME,
         forceColorScheme="light",
     )
-    register_callbacks(app, engine, mirror)
+    register_callbacks(app, engine, mirror, study_log=study_log)
     _install_basic_auth(app)
     return app
 
