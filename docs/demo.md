@@ -106,13 +106,20 @@ response and the log. A reload keeps the code; a new tab or private window
 gets a new one. Unset (the default), nothing is written and no code is shown.
 
 ```bash
-sbatch --account=gisr109364 \
-  --export=ALL,PUBLIC_TUNNEL=1,CASTLERAG_UI_BASIC_AUTH=study:<password>,CASTLERAG_STUDY_LOG=/projects/prjs2298/user_study/logs/session_$(date +%F).jsonl \
+read -rs -p "study password: " PW; echo
+CASTLERAG_UI_BASIC_AUTH="study:${PW}" sbatch --account=gisr109364 \
+  --export=ALL,PUBLIC_TUNNEL=1,CASTLERAG_STUDY_LOG=/projects/prjs2298/user_study/logs/session_$(date +%F).jsonl \
   scripts/slurm/ui_live.slurm
+unset PW
 ```
 
+The password is read without echo and handed to `sbatch` through its
+environment (`--export=ALL` passes it on), so it never appears in shell
+history or in the `sbatch` command line that other users on the login node
+can see with `ps`.
+
 Each line has `ts` (UTC, milliseconds), `session`, `event` and
-event-specific fields. Events: `page_load`, `ask`, `answer`, `select_moment`,
+event-specific fields (`page_load` carries `new_session`, false on a reload). Events: `page_load`, `ask`, `answer`, `select_moment`,
 `verdict`, `submit_reviews`, `refine_send`, `clear` and `export`. Question and
 refined-query text are logged; justification text is not (only its length).
 IP addresses, user agents and the basic-auth user are never logged, and
