@@ -495,3 +495,49 @@ def test_camera_grid_autoplays_only_the_cited_camera():
     srcs = [s for tile in tiles for s in _iframe_srcs(tile, [])]
     autoplaying = [s for s in srcs if "autoplay=1" in s]
     assert len(autoplaying) == 1  # only the cited camera autoplays
+
+
+def test_tour_button_and_assets_are_wired():
+    """The guided tour's JS/CSS ship in assets/ and its targets exist."""
+    pytest.importorskip("dash")
+    from pathlib import Path
+
+    import castlerag.ui as ui_pkg
+    from castlerag.ui.callbacks import _support_badge
+    from castlerag.ui.layout import build_layout
+    from castlerag.ui.youtube import YouTubeMirror
+
+    assets = Path(ui_pkg.__file__).parent / "assets"
+    tour_js = (assets / "tour.js").read_text(encoding="utf-8")
+    assert (assets / "tour.css").is_file()
+
+    ids = set()
+
+    def _ids(node):
+        node_id = getattr(node, "id", None)
+        if isinstance(node_id, str):
+            ids.add(node_id)
+        children = getattr(node, "children", None)
+        if isinstance(children, (list, tuple)):
+            for child in children:
+                _ids(child)
+        elif children is not None and hasattr(children, "children"):
+            _ids(children)
+
+    _ids(build_layout(YouTubeMirror(mapping={})))
+    assert "tour-button" in ids
+    # Static targets the tour script looks up by id.
+    for target in (
+        "tour-button",
+        "mode-badge",
+        "new-question-input",
+        "ask-new-button",
+        "camera-grid",
+        "review-row",
+        "compose-wrap",
+    ):
+        assert target in ids
+        assert f'"{target}"' in tour_js or f"#{target}" in tour_js
+    # The support badge carries the class the answer phase highlights.
+    assert _support_badge("supported").className == "support-badge"
+    assert ".support-badge" in tour_js
