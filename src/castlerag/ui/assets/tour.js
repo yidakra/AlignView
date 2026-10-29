@@ -249,7 +249,7 @@
 
   // ---- tour state ----------------------------------------------------------
 
-  var state = null; // {phase, steps, index, returnFocus, nodes}
+  var state = null; // {phase, steps, index, seen, returnFocus, nodes}
   var rafPending = false;
 
   function buildNodes() {
@@ -344,6 +344,7 @@
       phase: phase,
       steps: steps,
       index: 0,
+      seen: {},
       returnFocus: document.activeElement,
       nodes: nodes,
     };
@@ -410,14 +411,19 @@
     var steps = state.steps;
     var step = steps[i];
     state.index = i;
-    // Count only the steps that can be shown right now.
-    var shown = steps.filter(function (s, j) {
-      return j === i || available(s);
-    });
-    var pos = shown.indexOf(step);
     var isLast = nextAvailable(steps, i, 1) < 0;
+    // Count every step that has had a target at some point this run, so the
+    // total only grows (a late-rendered target) and never flickers when one
+    // re-renders; on the last step it shrinks to what was actually shown.
+    steps.forEach(function (s, j) {
+      if (j === i || available(s)) state.seen[j] = true;
+    });
+    var counted = steps.filter(function (s, j) {
+      return state.seen[j] && (!isLast || j <= i);
+    });
+    var pos = counted.indexOf(step);
 
-    n.count.textContent = "Step " + (pos + 1) + " of " + shown.length;
+    n.count.textContent = "Step " + (pos + 1) + " of " + counted.length;
     n.title.textContent = resolve(step.title);
     n.body.textContent = resolve(step.body);
     n.back.hidden = nextAvailable(steps, i, -1) < 0;
