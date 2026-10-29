@@ -1,0 +1,178 @@
+/* Guided onboarding tour (assets/tour.js): a dimmed backdrop, a spotlight cut
+ * around the current target, and a small dialog beside it (a bottom sheet on
+ * narrow screens). Uses the dashboard tokens from styles.css.
+ */
+
+.tour-root {
+    position: fixed;
+    inset: 0;
+    z-index: 4000;   /* above Mantine tooltips/popovers (z-index 300) */
+    font-family: inherit;
+}
+
+/* Full-screen layer that blocks the page while the tour runs. When a target is
+   highlighted the dimming comes from the spotlight's box-shadow instead. */
+.tour-backdrop {
+    position: absolute;
+    inset: 0;
+    background: transparent;
+}
+.tour-root.tour-centered .tour-backdrop {
+    background: rgba(17, 17, 34, 0.5);
+}
+
+.tour-spotlight {
+    position: absolute;
+    border-radius: 12px;
+    box-shadow:
+        0 0 0 2px var(--accent, #4f46e5),
+        0 0 0 6px rgba(79, 70, 229, 0.22),
+        0 0 0 200vmax rgba(17, 17, 34, 0.5);
+    pointer-events: none;
+    transition-property: top, left, width, height;
+    transition-duration: 220ms;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.tour-spotlight[hidden] { display: none; }
+
+.tour-dialog {
+    position: absolute;
+    width: min(340px, calc(100vw - 32px));
+    padding: 16px 16px 12px;
+    background: var(--panel, #fff);
+    color: #1f1f2b;
+    border: 1px solid var(--border, #ececf1);
+    border-radius: 14px;
+    box-shadow:
+        0 1px 2px rgba(20, 20, 40, 0.06),
+        0 12px 32px rgba(20, 20, 40, 0.18);
+    opacity: 0;
+    transform: translateY(4px);
+    transition-property: opacity, transform, top, left;
+    transition-duration: 180ms;
+    transition-timing-function: ease-out;
+}
+.tour-root.tour-open .tour-dialog.tour-in {
+    opacity: 1;
+    transform: none;
+}
+.tour-dialog:focus { outline: none; }
+
+/* No target (welcome step): centre the dialog on screen. */
+.tour-root.tour-centered:not(.tour-sheet) .tour-dialog {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, calc(-50% + 4px));
+}
+.tour-root.tour-open.tour-centered:not(.tour-sheet) .tour-dialog.tour-in {
+    transform: translate(-50%, -50%);
+}
+
+.tour-count {
+    margin: 0 0 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent, #4f46e5);
+    font-variant-numeric: tabular-nums;
+}
+.tour-title {
+    margin: 0 0 6px;
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 1.3;
+    text-wrap: balance;
+}
+.tour-body {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #4a4a57;
+    text-wrap: pretty;
+}
+
+.tour-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 14px;
+}
+.tour-nav { display: flex; gap: 6px; }
+
+.tour-btn {
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition-property: background-color, border-color, transform;
+    transition-duration: 120ms;
+    transition-timing-function: ease-out;
+}
+.tour-btn:active { transform: scale(0.97); }
+.tour-btn:focus-visible {
+    outline: 2px solid var(--accent, #4f46e5);
+    outline-offset: 2px;
+}
+.tour-btn[hidden] { display: none; }
+.tour-btn-next {
+    background: var(--accent, #4f46e5);
+    color: #fff;
+}
+.tour-btn-next:hover { background: #4338ca; }
+.tour-btn-back {
+    background: #fff;
+    border-color: var(--border-strong, #e4e4ea);
+    color: #2c2c38;
+}
+.tour-btn-back:hover { background: #f6f6f9; }
+.tour-btn-skip {
+    margin-left: -8px;
+    padding: 0 8px;
+    background: none;
+    color: #6b6b78;
+}
+.tour-btn-skip:hover { color: #2c2c38; background: #f3f3f6; }
+
+.tour-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* Narrow screens: a bottom sheet (top sheet when it would cover the target). */
+.tour-root.tour-sheet .tour-dialog {
+    left: 8px;
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    padding: 16px 16px 14px;
+    transform: translateY(8px);
+}
+.tour-root.tour-sheet .tour-dialog.tour-sheet-top {
+    top: 8px;
+    bottom: auto;
+    transform: translateY(-8px);
+}
+.tour-root.tour-sheet.tour-open .tour-dialog.tour-in { transform: none; }
+.tour-root.tour-sheet .tour-btn { min-height: 40px; }
+
+/* Reduced motion: no slides, no spotlight travel. */
+.tour-root.tour-reduced .tour-dialog,
+.tour-root.tour-reduced .tour-spotlight,
+.tour-root.tour-reduced .tour-btn {
+    transition: none;
+}
+.tour-root.tour-reduced .tour-btn:active { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+    .tour-dialog,
+    .tour-spotlight,
+    .tour-btn { transition: none; }
+    .tour-btn:active { transform: none; }
+}
