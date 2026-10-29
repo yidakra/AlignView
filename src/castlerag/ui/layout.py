@@ -88,12 +88,15 @@ _SCORE_MODE_TOOLTIP: dict[str, str] = {
 }
 
 
-def _top_bar(mode: str, cfg: Optional[object] = None) -> dmc.Group:
+def _top_bar(
+    mode: str, cfg: Optional[object] = None, study: bool = False
+) -> dmc.Group:
     """Return the top bar with the CastleRAG mark, status badges, and clear button.
 
     ``mode`` is ``"live"`` (real RAG backend) or ``"offline"`` (placeholder).
     Badges are derived from ``cfg`` when available, otherwise fall back to
-    hardcoded defaults.
+    hardcoded defaults. With ``study`` on, a quiet session-code badge is added
+    for the participant to copy into the study form.
     """
     live = mode == "live"
 
@@ -124,6 +127,7 @@ def _top_bar(mode: str, cfg: Optional[object] = None) -> dmc.Group:
             dmc.Group(
                 gap="xs",
                 children=[
+                    *_session_code_badge(study),
                     dmc.Badge(day_label, variant="light", color="gray"),
                     dmc.Badge(cam_label, variant="light", color="gray"),
                     # Stable id: the user-study capture tool reads this to
@@ -154,6 +158,22 @@ def _top_bar(mode: str, cfg: Optional[object] = None) -> dmc.Group:
             ),
         ],
     )
+
+
+def _session_code_badge(study: bool) -> list:
+    """The study session-code badge (filled in by a callback), or nothing."""
+    if not study:
+        return []
+    return [
+        dmc.Badge(
+            "Session code: …",
+            id="session-code",
+            className="session-code",
+            variant="outline",
+            color="gray",
+            tt="none",
+        )
+    ]
 
 
 def _thread_column() -> html.Div:
@@ -336,12 +356,17 @@ def build_layout(
     mode: str = "offline",
     score_mode: str = "rrf_normalized",
     cfg: Optional[object] = None,
+    study: bool = False,
 ) -> html.Div:
-    """Build the full dashboard layout (state lives in the stores below)."""
+    """Build the full dashboard layout (state lives in the stores below).
+
+    ``study`` adds the session-code badge and its per-tab store; it is on only
+    when the interaction log is (see :mod:`castlerag.ui.study_log`).
+    """
     return html.Div(
         className="app-root",
         children=[
-            _top_bar(mode, cfg),
+            _top_bar(mode, cfg, study),
             html.Div(
                 className="app-body",
                 children=[
@@ -370,5 +395,12 @@ def build_layout(
             dcc.Store(id="pending-question"),
             # Hidden sink used by the auto-focus clientside callback.
             html.Div(id="_focus-dummy", style={"display": "none"}),
+            # Session storage: a reload keeps the code, a new tab or private
+            # window gets a fresh one.
+            *(
+                [dcc.Store(id="study-session", storage_type="session")]
+                if study
+                else []
+            ),
         ],
     )
