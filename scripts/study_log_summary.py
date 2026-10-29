@@ -27,6 +27,8 @@ def summarize(lines: List[str]) -> Dict[str, Dict[str, object]]:
             rec = json.loads(line)
         except ValueError:
             continue
+        if not isinstance(rec, dict):
+            continue
         s = out[str(rec.get("session"))]
         ts = rec.get("ts")
         s["first"] = s["first"] or ts
