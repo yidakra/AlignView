@@ -84,6 +84,29 @@ def test_enabled_from_env(monkeypatch, tmp_path):
     assert log.enabled and log.path == path
 
 
+def test_summary_counts_sessions_and_skips_bad_lines():
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).parents[2] / "scripts" / "study_log_summary.py"
+    spec = importlib.util.spec_from_file_location("study_log_summary", script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    rows = mod.summarize([
+        '{"ts": "t1", "session": "AAAAAA", "event": "ask"}',
+        '{"ts": "t2", "session": "AAAAAA", "event": "answer", "latency_ms": 40}',
+        '{"ts": "t3", "session": "AAAAAA", "event": "verdict"}',
+        "not json",
+        "[1, 2]",  # valid JSON, not an event object
+        "42",
+    ])
+    assert list(rows) == ["AAAAAA"]
+    row = rows["AAAAAA"]
+    assert (row["asks"], row["answers"], row["verdicts"]) == (1, 1, 1)
+    assert row["latencies"] == [40]
+
+
 def test_concurrent_writes_do_not_interleave(tmp_path):
     path = tmp_path / "study.jsonl"
     log = StudyLog(path)
@@ -156,6 +179,8 @@ def test_page_load_and_ask_callbacks_log_events(monkeypatch, tmp_path):
         "page_load", "page_load", "ask", "answer",
     ]
     assert all(r["session"] == code for r in records)
+    # First load issues the code; the reload reuses it.
+    assert [r["new_session"] for r in records[:2]] == [True, False]
     ask, answer = records[2], records[3]
     assert ask["question"] == "Who is cooking?"
     assert ask["is_refinement"] is False

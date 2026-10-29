@@ -947,10 +947,16 @@ def register_callbacks(
             Input("study-session", "data"),
         )
         def on_study_session(code: Optional[str]) -> tuple:
-            """Issue this tab's session code (kept across reloads) and log the load."""
-            if not is_session_code(code):
+            """Issue this tab's session code (kept across reloads) and log the load.
+
+            Dash does not re-fire a callback for its own output, so this runs
+            once per page load: ``new_session`` is false on a reload, which
+            hands back the code already in the tab's session storage.
+            """
+            fresh = not is_session_code(code)
+            if fresh:
                 code = new_session_code()
-            study_log.log(code, "page_load")
+            study_log.log(code, "page_load", new_session=fresh)
             return code, [
                 "Session code: ",
                 html.Span(code, className="session-code-value"),
