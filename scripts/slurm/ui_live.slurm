@@ -137,6 +137,8 @@ EOF
 #   NAMED_TUNNEL_TOKEN set -> run a pre-created Cloudflare *named* tunnel: stable
 #       hostname + Cloudflare Access (email allowlist), both configured once in
 #       the Zero Trust dashboard. Best for a scheduled demo. Takes precedence.
+#   NGROK_DOMAIN set       -> ngrok agent on that reserved domain (free plan
+#       includes one) + HTTP basic auth. Same URL every run, no own domain needed.
 #   PUBLIC_TUNNEL=1        -> ephemeral quick tunnel + HTTP basic auth.
 #   (neither)              -> SSH-tunnel only (default; UI bound 0.0.0.0).
 
@@ -178,6 +180,56 @@ if [ -n "${NAMED_TUNNEL_TOKEN:-}" ]; then
 [ui]               Cloudflare Zero Trust dashboard (service http://localhost:${UI_PORT}).
 [ui]  Access     = your email-allowlist policy on that hostname.
 [ui]  Stable across runs. scancel ${SLURM_JOB_ID} to stop the connector.
+[ui] ============================================================
+
+EOF
+    wait "$UI_PID"
+    exit 0
+fi
+
+# --- ngrok static domain + basic auth: the same public URL on every run. ---
+# The authtoken comes from the agent's own config (`~/ngrok config add-authtoken`)
+# or NGROK_AUTHTOKEN; it is never passed on the command line.
+if [ -n "${NGROK_DOMAIN:-}" ]; then
+    if [ -z "${CASTLERAG_UI_BASIC_AUTH:-}" ]; then
+        echo "[ui] ABORT: NGROK_DOMAIN needs CASTLERAG_UI_BASIC_AUTH=user:pass"
+        echo "[ui]        (refusing to expose the live backend with no auth)."
+        exit 2
+    fi
+    NGBIN="${NGROK:-${HOME}/ngrok}"
+    if [ ! -x "${NGBIN}" ]; then
+        echo "[ui] ABORT: ngrok not found/executable at ${NGBIN} (set NGROK=...)."
+        exit 2
+    fi
+    castlerag ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" &
+    UI_PID=$!
+    trap 'kill $EMB_PID $GEN_PID $QPID $UI_PID ${NG_PID:-} 2>/dev/null; qdrant_unlock' EXIT
+    for i in $(seq 1 90); do
+        curl -sf -u "${CASTLERAG_UI_BASIC_AUTH}" "http://localhost:${UI_PORT}/" >/dev/null 2>&1 \
+            && { echo "[ui] dashboard ready ($((i*2))s)"; break; }
+        kill -0 "$UI_PID" 2>/dev/null || { echo "[ui] ERROR: UI process died"; exit 1; }
+        sleep 2
+    done
+    NG_LOG="logs/ui_ngrok_${SLURM_JOB_ID}.log"
+    "${NGBIN}" http "${UI_PORT}" --url "https://${NGROK_DOMAIN#https://}" \
+        --log stdout --log-format logfmt > "${NG_LOG}" 2>&1 &
+    NG_PID=$!
+    NG_UP=0
+    for i in $(seq 1 30); do
+        grep -q 'msg="started tunnel"' "${NG_LOG}" 2>/dev/null && { NG_UP=1; break; }
+        kill -0 "$NG_PID" 2>/dev/null || break
+        sleep 2
+    done
+    if [ "${NG_UP}" != 1 ]; then
+        echo "[ui] ERROR: ngrok tunnel did not start; log:"; tail -20 "${NG_LOG}"; exit 1
+    fi
+    cat <<EOF
+
+[ui] ============================================================
+[ui]  PUBLIC DEMO URL : https://${NGROK_DOMAIN#https://}
+[ui]  basic-auth user : ${CASTLERAG_UI_BASIC_AUTH%%:*}  (share the password out-of-band)
+[ui]  Same URL every run. scancel ${SLURM_JOB_ID} to tear it down.
+[ui]  Free plan: first visit shows ngrok's one-time warning page; click "Visit Site".
 [ui] ============================================================
 
 EOF
