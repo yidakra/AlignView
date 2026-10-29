@@ -34,7 +34,6 @@ SC="/scratch-shared/${USER}"
 QFILE="data/smoke_day1_questions.json"
 NQ=40
 COLL="castle_multimodal_v1"
-export HF_HOME="${SC}/hf_cache"
 export HF_HUB_OFFLINE=1
 export HF_HUB_DISABLE_TELEMETRY=1
 export VLLM_LOGGING_LEVEL=WARNING
@@ -45,9 +44,18 @@ echo "[smoke] branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) commit=$(git
 module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12.6.0 FFmpeg/7.0.2-GCCcore-13.3.0
 source "${HOME}/castlerag_venv/bin/activate"
 cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+# Values exported at submission (sbatch --export) win over the config.
+_SUBMIT_QDRANT_BIN="${QDRANT_BIN:-}"
+_SUBMIT_QDRANT_STORAGE="${QDRANT_STORAGE:-}"
 PATHS="$(castlerag paths --config "${CONF}")" || { echo "ABORT: castlerag paths failed for ${CONF}"; exit 1; }
 eval "${PATHS}"
-QSTORE="${QDRANT_STORAGE:-${SC}/qdrant_storage}"
+QSTORE="${_SUBMIT_QDRANT_STORAGE:-${QDRANT_STORAGE:-${SC}/qdrant_storage}}"
+QDRANT_BIN="${_SUBMIT_QDRANT_BIN:-${QDRANT_BIN:-${HOME}/qdrant/qdrant}}"   # submit > config qdrant.binary > own copy
+[ -x "${QDRANT_BIN}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN} (set qdrant.binary in ${CONF})"; exit 1; }
+# Model cache: CASTLERAG_HF_HOME > config slurm.hf_home > scratch. HF_HOME itself is
+# not honoured from the environment, since login shells often set it elsewhere.
+export HF_HOME="${CASTLERAG_HF_HOME:-${HF_HOME_DIR:-${SC}/hf_cache}}"
+[ -d "${HF_HOME}/hub" ] || { echo "ABORT: no model cache at ${HF_HOME}/hub (jobs run offline; set slurm.hf_home in ${CONF})"; exit 1; }
 # One Qdrant per storage folder: take the lock before any server starts, so a
 # refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
 source scripts/slurm/qdrant_lock.sh
@@ -81,7 +89,7 @@ GEN_PID=$!
 # --- Qdrant against EXISTING persisted storage (NO create-collection) ---
 export QDRANT__STORAGE__STORAGE_PATH="${QSTORE}/storage"
 QLOG="logs/smoke_qdrant_${SLURM_JOB_ID}.log"
-"${HOME}/qdrant/qdrant" > "${QLOG}" 2>&1 &
+"${QDRANT_BIN}" > "${QLOG}" 2>&1 &
 QPID=$!
 trap 'kill $EMB_PID $GEN_PID $QPID 2>/dev/null; qdrant_unlock' EXIT
 

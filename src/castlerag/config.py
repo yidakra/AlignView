@@ -96,6 +96,9 @@ class QdrantConfig(BaseModel):
     # Where the Qdrant server keeps its data; read by the Slurm scripts via
     # `castlerag paths` (the server itself is configured by environment).
     storage_path: Optional[str] = None
+    # The Qdrant server binary the Slurm jobs start, also via `castlerag
+    # paths` (QDRANT_BIN). Unset: each user's ~/qdrant/qdrant.
+    binary: Optional[str] = None
 
 
 class RetrievalConfig(BaseModel):
@@ -279,6 +282,9 @@ class SlurmConfig(BaseModel):
     gpus: int = 1
     mail_type: str = "FAIL"
     mail_user: str = ""
+    # Hugging Face cache (HF_HOME) the jobs load models from, printed by
+    # `castlerag paths` as HF_HOME_DIR. Unset: /scratch-shared/$USER/hf_cache.
+    hf_home: Optional[str] = None
 
 
 class RoutingConfig(BaseModel):

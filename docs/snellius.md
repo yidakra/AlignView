@@ -305,8 +305,15 @@ sleep 5
 trap 'kill $QDRANT_PID 2>/dev/null' EXIT
 ```
 
-(Download the qdrant binary once into `~/qdrant/` — single static binary,
-no sudo required.)
+(The project jobs use the shared binary `/projects/prjs2298/bin/qdrant`, set as
+`qdrant.binary` in `configs/snellius_project.yaml` and readable by the
+`prjs2298` group. Without it they fall back to `~/qdrant/qdrant`: a single
+static binary you can download once, no sudo required.)
+
+The model cache works the same way: the project jobs load models offline from
+`/projects/prjs2298/hf_cache` (`slurm.hf_home` in the same config), so every
+member of the group can run them. Set `CASTLERAG_HF_HOME` to use another cache
+for one job; an `HF_HOME` from your login shell is ignored on purpose.
 
 ## 7. Incremental ingest (preferred after the first run)
 

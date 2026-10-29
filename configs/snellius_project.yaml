@@ -28,9 +28,12 @@ qdrant:
   host: "localhost"
   port: 6333
   storage_path: "/projects/prjs2298/qdrant_storage"
+  binary: "/projects/prjs2298/bin/qdrant"   # shared with the prjs2298 group
 outputs:
   dir:             "/projects/prjs2298/castle_outputs"
   predictions:     "/projects/prjs2298/castle_outputs/predictions.json"
   evidence_traces: "/projects/prjs2298/castle_outputs/evidence_traces.jsonl"
   submissions:     "/projects/prjs2298/castle_outputs/submissions.json"
   metrics:         "/projects/prjs2298/castle_outputs/metrics.json"
+slurm:
+  hf_home: "/projects/prjs2298/hf_cache"   # model cache shared with the prjs2298 group

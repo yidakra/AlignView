@@ -37,15 +37,19 @@ source "${HOME}/castlerag_venv/bin/activate"; cd "${SLURM_SUBMIT_DIR:-$(cd "$(di
 
 wait_ready(){ for i in $(seq 1 150); do curl -sf "http://localhost:$1/v1/models">/dev/null 2>&1 && { echo "[r2] $2 ready ($((i*10))s)";return 0;}; sleep 10; done; echo "[r2] $2 NOT ready"; tail -30 "$3"; return 1; }
 
+[ -x "${QDRANT_BIN:-${HOME}/qdrant/qdrant}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN:-${HOME}/qdrant/qdrant}"; exit 1; }   # before any server starts
 CUDA_VISIBLE_DEVICES=2 python scripts/omniembed_server.py --port 8200 > "logs/r2_omni_${J}.log" 2>&1 & EMB=$!
 CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8201 --served-model-name Qwen/Qwen3-VL-8B-Instruct qwen3vl --gpu-memory-utilization 0.85 --max-model-len 4096 --trust-remote-code > "logs/r2_gen0_${J}.log" 2>&1 & G0=$!
 CUDA_VISIBLE_DEVICES=1 vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8202 --served-model-name Qwen/Qwen3-VL-8B-Instruct qwen3vl --gpu-memory-utilization 0.85 --max-model-len 4096 --trust-remote-code > "logs/r2_gen1_${J}.log" 2>&1 & G1=$!
 export QDRANT__STORAGE__STORAGE_PATH="${SC}/qdrant_storage/storage"
-"${HOME}/qdrant/qdrant" > "logs/r2_qdrant_${J}.log" 2>&1 & QP=$!
+"${QDRANT_BIN:-${HOME}/qdrant/qdrant}" > "logs/r2_qdrant_${J}.log" 2>&1 & QP=$!
 trap 'kill $EMB $G0 $G1 $QP 2>/dev/null' EXIT
 wait_ready 8201 gen0 "logs/r2_gen0_${J}.log" || exit 1
 wait_ready 8202 gen1 "logs/r2_gen1_${J}.log" || exit 1
-sleep 6; curl -sf http://localhost:6333/readyz>/dev/null && echo "[r2] qdrant ready"
+_qready=0
+for _q in $(seq 1 60); do curl -sf --max-time 2 http://localhost:6333/readyz >/dev/null && { _qready=1; break; }; sleep 1; done
+[ "${_qready}" = 1 ] || { echo "[r2] ABORT: Qdrant not ready after 60 tries"; exit 1; }
+echo "[r2] qdrant ready"
 
 # --- Phase 1: parallel caption, each camera in its ISOLATED chunks_dir ---
 echo "[r2] === Phase 1: isolated caption $(date -Iseconds) ==="

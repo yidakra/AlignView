@@ -49,6 +49,7 @@ wait_ready() { # url label logfile pid
 
 # --- OmniEmbed (GPU0:8200) — for any query-cache misses ---
 EMB_LOG="logs/hc_omniembed_${SLURM_JOB_ID}.log"
+[ -x "${QDRANT_BIN:-${HOME}/qdrant/qdrant}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN:-${HOME}/qdrant/qdrant}"; exit 1; }   # before any server starts
 CUDA_VISIBLE_DEVICES=0 python scripts/omniembed_server.py --port 8200 > "${EMB_LOG}" 2>&1 &
 EMB_PID=$!
 # --- Qwen3-VL generation/rerank (GPU1:8201) ---
@@ -61,7 +62,7 @@ GEN_PID=$!
 # --- Qdrant against EXISTING persisted storage (NO create-collection) ---
 export QDRANT__STORAGE__STORAGE_PATH="${SC}/qdrant_storage/storage"
 QLOG="logs/hc_qdrant_${SLURM_JOB_ID}.log"
-"${HOME}/qdrant/qdrant" > "${QLOG}" 2>&1 &
+"${QDRANT_BIN:-${HOME}/qdrant/qdrant}" > "${QLOG}" 2>&1 &
 QPID=$!
 trap 'kill $EMB_PID $GEN_PID $QPID 2>/dev/null' EXIT
 

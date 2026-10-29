@@ -93,6 +93,8 @@ def test_paths_command_prints_project_config_paths(monkeypatch):
     assert values["CHUNKS_DIR"] == "/projects/prjs2298/castle_derived/chunks"
     assert values["EMB_DIR"] == "/projects/prjs2298/castle_derived/embeddings"
     assert values["QDRANT_STORAGE"] == "/projects/prjs2298/qdrant_storage"
+    assert values["QDRANT_BIN"] == "/projects/prjs2298/bin/qdrant"
+    assert values["HF_HOME_DIR"] == "/projects/prjs2298/hf_cache"
     assert values["DATA_ROOT"] == "/scratch-shared/tester/castle2024"
 
 
@@ -104,6 +106,9 @@ def test_paths_command_keeps_scratch_for_the_current_config(monkeypatch):
     assert result.exit_code == 0, result.output
     assert "CHUNKS_DIR=/scratch-shared/tester/castle_derived/chunks" in result.output
     assert "QDRANT_STORAGE=/scratch-shared/tester/qdrant_storage" in result.output
+    # no shared binary configured: the jobs fall back to ~/qdrant/qdrant
+    assert "QDRANT_BIN=''" in result.output
+    assert "HF_HOME_DIR=''" in result.output
 
 
 def test_paths_command_rejects_a_missing_config(tmp_path: Path):
@@ -142,3 +147,130 @@ def test_regen_writes_rebuilt_frames_to_the_new_home(tmp_path: Path, monkeypatch
     assert stats["written"] == 2
     assert all(Path(p.replace(str(old), str(new))).exists() for p in stored)
     assert not old.exists()  # nothing written back to scratch
+
+
+@pytest.mark.parametrize(
+    "script", ["ui_live", "smoke_day1_roomfix", "eval_ui_demo", "ingest_day"]
+)
+@pytest.mark.parametrize(
+    "submit,config,expected",
+    [
+        ("/opt/my/qdrant", "/projects/prjs2298/bin/qdrant", "/opt/my/qdrant"),
+        ("", "/projects/prjs2298/bin/qdrant", "/projects/prjs2298/bin/qdrant"),
+        ("", "", "/home/tester/qdrant/qdrant"),
+    ],
+)
+@pytest.mark.parametrize(
+    "submit_store,config_store,expected_store",
+    [
+        ("/my/store", "/projects/prjs2298/qdrant_storage", "/my/store"),
+        ("", "/projects/prjs2298/qdrant_storage", "/projects/prjs2298/qdrant_storage"),
+        ("", "", "/scratch/x/qdrant_storage"),
+    ],
+)
+def test_slurm_qdrant_precedence(
+    script, submit, config, expected, submit_store, config_store, expected_store
+):
+    """Submit-time value > config > default, for both QDRANT_BIN and the
+    storage folder, even though `castlerag paths` always prints both
+    (possibly empty)."""
+    import subprocess
+
+    text = (REPO / "scripts" / "slurm" / f"{script}.slurm").read_text()
+    lines = [
+        ln
+        for ln in text.splitlines()
+        if ln.startswith(("_SUBMIT_QDRANT_", "QSTORE=", "QDRANT_BIN="))
+    ]
+    assert len(lines) == 4, lines
+    paths = f"QDRANT_STORAGE='{config_store}'\nQDRANT_BIN='{config}'"
+    snippet = "\n".join(
+        [lines[0], lines[1], f'PATHS="{paths}"', 'eval "${PATHS}"', *lines[2:]]
+    )
+    env = {"PATH": "/usr/bin:/bin", "HOME": "/home/tester", "SC": "/scratch/x"}
+    if submit:
+        env["QDRANT_BIN"] = submit
+    if submit_store:
+        env["QDRANT_STORAGE"] = submit_store
+    out = subprocess.run(
+        ["bash", "-c", snippet + '\necho "$QDRANT_BIN|$QSTORE"'],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == f"{expected}|{expected_store}"
+
+
+def test_older_slurm_scripts_check_the_binary_before_any_server():
+    import re
+
+    for name in (
+        "resume_day1",
+        "resume2_day1",
+        "full_day1",
+        "index_qdrant",
+        "smoke_min_allinone",
+        "_smoke_wandb",
+        "_healthcheck_smoke",
+    ):
+        lines = (REPO / "scripts" / "slurm" / f"{name}.slurm").read_text().splitlines()
+        guard = next(
+            (i for i, ln in enumerate(lines) if ln.startswith('[ -x "${QDRANT_BIN')),
+            None,
+        )
+        first_bg = next(
+            (
+                i
+                for i, ln in enumerate(lines)
+                if not ln.lstrip().startswith("#")
+                and re.search(r"&\s*(\w+=\$!\s*)?$", ln.strip())
+                and not ln.strip().endswith("&&")
+            ),
+            None,
+        )
+        assert guard is not None, f"{name}: no Qdrant binary check"
+        assert first_bg is not None, f"{name}: no background server found"
+        assert guard < first_bg, f"{name}: binary check comes after a server starts"
+
+
+@pytest.mark.parametrize(
+    "script", ["ui_live", "smoke_day1_roomfix", "eval_ui_demo", "ingest_day"]
+)
+@pytest.mark.parametrize(
+    "override,config,login,expected",
+    [
+        ("/my/cache", "/projects/prjs2298/hf_cache", "", "/my/cache"),
+        ("", "/projects/prjs2298/hf_cache", "", "/projects/prjs2298/hf_cache"),
+        ("", "", "", "/scratch/x/hf_cache"),
+        # an HF_HOME inherited from the login shell must not win over the config
+        (
+            "",
+            "/projects/prjs2298/hf_cache",
+            "/elsewhere",
+            "/projects/prjs2298/hf_cache",
+        ),
+    ],
+)
+def test_slurm_hf_home_precedence(script, override, config, login, expected):
+    import subprocess
+
+    text = (REPO / "scripts" / "slurm" / f"{script}.slurm").read_text()
+    line = next(
+        (ln for ln in text.splitlines() if ln.startswith('export HF_HOME="')), None
+    )
+    assert line is not None, f"{script}: no HF_HOME line"
+    assert text.count("HF_HOME=") == 1, f"{script}: HF_HOME set more than once"
+    env = {"PATH": "/usr/bin:/bin", "SC": "/scratch/x", "HF_HOME_DIR": config}
+    if override:
+        env["CASTLERAG_HF_HOME"] = override
+    if login:
+        env["HF_HOME"] = login
+    out = subprocess.run(
+        ["bash", "-c", line + '\necho "$HF_HOME"'],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == expected
