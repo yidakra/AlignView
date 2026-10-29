@@ -49,6 +49,7 @@ wait_ready() { # url label logfile [pid]
 # Nodes here are A100-40GB, so give each model its own GPU (GPU0=OmniEmbed, GPU1=Qwen3-VL).
 # --- OmniEmbed embeddings server (custom transformers server; GPU0, port 8200) ---
 EMB_LOG="logs/omniembed_${SLURM_JOB_ID}.log"
+[ -x "${QDRANT_BIN:-${HOME}/qdrant/qdrant}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN:-${HOME}/qdrant/qdrant}"; exit 1; }   # before any server starts
 CUDA_VISIBLE_DEVICES=0 python scripts/omniembed_server.py --port 8200 > "${EMB_LOG}" 2>&1 &
 EMB_PID=$!
 trap 'kill $EMB_PID 2>/dev/null' EXIT
@@ -67,7 +68,7 @@ trap 'kill $EMB_PID $GEN_PID 2>/dev/null' EXIT
 
 # --- Qdrant (storage on shared scratch) ---
 export QDRANT__STORAGE__STORAGE_PATH="${SC}/qdrant_storage/storage"
-"${HOME}/qdrant/qdrant" > "logs/qdrant_${SLURM_JOB_ID}.log" 2>&1 &
+"${QDRANT_BIN:-${HOME}/qdrant/qdrant}" > "logs/qdrant_${SLURM_JOB_ID}.log" 2>&1 &
 QPID=$!
 trap 'kill $EMB_PID $GEN_PID $QPID 2>/dev/null' EXIT
 

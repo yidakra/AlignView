@@ -50,6 +50,7 @@ wait_ready() { # port label logfile
 }
 
 # --- GPU2: OmniEmbed server (needed for the embed stage) ---
+[ -x "${QDRANT_BIN:-${HOME}/qdrant/qdrant}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN:-${HOME}/qdrant/qdrant}"; exit 1; }   # before any server starts
 CUDA_VISIBLE_DEVICES=2 python scripts/omniembed_server.py --port 8200 > "logs/omni_${J}.log" 2>&1 &
 EMB_PID=$!
 # --- GPU0 + GPU1: two Qwen3-VL servers for batched captioning (short prompts -> small KV) ---
@@ -65,13 +66,16 @@ CUDA_VISIBLE_DEVICES=1 vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8202 \
 G1=$!
 # --- Qdrant (storage on shared scratch) ---
 export QDRANT__STORAGE__STORAGE_PATH="${SC}/qdrant_storage/storage"
-"${HOME}/qdrant/qdrant" > "logs/qdrant_${J}.log" 2>&1 &
+"${QDRANT_BIN:-${HOME}/qdrant/qdrant}" > "logs/qdrant_${J}.log" 2>&1 &
 QP=$!
 trap 'kill $EMB_PID $G0 $G1 $QP 2>/dev/null' EXIT
 
 wait_ready 8201 gen0 "logs/gen0_${J}.log" || exit 1
 wait_ready 8202 gen1 "logs/gen1_${J}.log" || exit 1
-sleep 6; curl -sf http://localhost:6333/readyz >/dev/null && echo "[full] qdrant ready"
+_qready=0
+for _q in $(seq 1 60); do curl -sf --max-time 2 http://localhost:6333/readyz >/dev/null && { _qready=1; break; }; sleep 1; done
+[ "${_qready}" = 1 ] || { echo "[full] ABORT: Qdrant not ready after 60 tries"; exit 1; }
+echo "[full] qdrant ready"
 
 # --- FAN OUT: all 10 cameras in parallel, split across the 2 gen servers ---
 echo "[full] === preprocess fan-out: 10 cameras (caption+events) $(date -Iseconds) ==="
