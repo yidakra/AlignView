@@ -333,10 +333,46 @@ body {
 }
 
 /* ---- responsive ---- */
+/* Narrow screens stack the columns and let the page scroll normally: the
+   one-viewport shell only works when both columns sit side by side. The thread
+   keeps a fixed height so its ask bar stays reachable without scrolling the
+   whole answer history past it. */
 @media (max-width: 900px) {
-    .app-body { grid-template-columns: 1fr; }
-    .thread-col { height: 70vh; max-height: 70vh; }
+    .app-root {
+        height: auto;
+        min-height: 100dvh;
+        overflow: visible;
+        padding: 12px 16px 24px;
+    }
+    .app-body {
+        flex: none;
+        grid-template-columns: minmax(0, 1fr);  /* ignore the splitter width */
+        gap: 12px;
+    }
     .app-gutter { display: none; }  /* single column -> no splitter */
+    .thread-col { height: 70vh; height: 70dvh; }
+    .viewer-col {
+        min-width: 0;
+        overflow: visible;
+    }
+}
+
+@media (max-width: 600px) {
+    .app-root { padding: 8px 10px 20px; }
+    .top-bar { padding: 4px 2px 10px; row-gap: 8px; }
+    /* badges + Export/Clear get their own full row under the brand instead of
+       squeezing beside it and wrapping one button onto a line of its own */
+    .top-bar > :last-child { flex: 1 1 100%; --group-gap: 6px; }
+    .top-bar .mantine-Button-root { padding-inline: 8px; }
+    .viewer-col { padding: 12px; }
+    /* one camera per row: three thumbnails side by side are too small to
+       verify anything on a phone */
+    .camera-grid,
+    .review-row { grid-template-columns: minmax(0, 1fr); }
+    /* iOS Safari zooms the page when a focused field is under 16px */
+    .ask-new-input,
+    .compose-input,
+    .review-just { font-size: 16px; }
 }
 
 /* ⓘ help trigger (layout.info_icon): a bare native button whose invisible
