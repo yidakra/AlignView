@@ -383,7 +383,9 @@ _MOMENTS_TOOLTIP = (
 def _support_badge(support: str) -> dmc.Badge:
     """Return a coloured confidence badge for a claim's support level."""
     label, color = _SUPPORT_BADGE.get(support, _SUPPORT_BADGE["partial"])
-    return dmc.Badge(label, variant="light", color=color, size="xs")
+    return dmc.Badge(
+        label, variant="light", color=color, size="xs", className="support-badge"
+    )
 
 
 def _render_group(
