@@ -138,6 +138,16 @@ def _top_bar(
                         variant="light" if live else "outline",
                         color="teal" if live else "gray",
                     ),
+                    # Restarts the guided tour (assets/tour.js listens for clicks
+                    # on this id; no Dash callback).
+                    dmc.Button(
+                        "Tour",
+                        id="tour-button",
+                        variant="subtle",
+                        color="gray",
+                        size="xs",
+                        n_clicks=0,
+                    ),
                     dmc.Button(
                         "Export",
                         id="export-thread-button",
