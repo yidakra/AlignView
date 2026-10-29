@@ -90,8 +90,9 @@
         target: byId("ask-new-button"),
         title: "Send it",
         body:
-          "Select Send or press Enter. When the answer appears, the tour " +
-          "continues and shows you how to check it.",
+          "Once you’ve typed a question, select Send or press Enter. When " +
+          "the answer appears, the tour continues and shows you how to " +
+          "check it.",
         focusOnDone: "new-question-input",
       },
     ],
@@ -160,8 +161,8 @@
         target: byId("compose-wrap"),
         title: "Refine your question",
         body:
-          "After you submit your reviews, a suggested follow-up question " +
-          "appears here. Edit it if you like, then run it.",
+          "This is a suggested follow-up question based on your reviews. " +
+          "Edit it if you like, then run the refined search.",
       },
     ],
   };
@@ -291,13 +292,14 @@
     dialog.appendChild(actions);
 
     // Announces each step to screen readers; focus stays on the Next button.
+    // Inside the dialog, since aria-modal hides everything outside it.
     var live = el("div", "tour-sr-only");
     live.setAttribute("aria-live", "polite");
+    dialog.appendChild(live);
 
     root.appendChild(backdrop);
     root.appendChild(spot);
     root.appendChild(dialog);
-    root.appendChild(live);
 
     skip.addEventListener("click", function () {
       finish(false);
@@ -329,10 +331,11 @@
 
   function start(phase) {
     if (state) return;
-    var steps = PHASES[phase].filter(function (s) {
-      return !s.target || visible(resolve(s.target));
-    });
-    if (!steps.length) return;
+    // Steps are checked for a target as the tour reaches them, so parts Dash
+    // renders a moment later are not dropped up front.
+    var steps = PHASES[phase];
+    var first = nextAvailable(steps, -1, 1);
+    if (first < 0) return;
 
     var nodes = buildNodes();
     if (reducedMotion()) nodes.root.classList.add("tour-reduced");
@@ -351,7 +354,20 @@
     requestAnimationFrame(function () {
       if (state) nodes.root.classList.add("tour-open");
     });
-    show(0);
+    show(first);
+  }
+
+  function available(step) {
+    return !step.target || visible(resolve(step.target));
+  }
+
+  // Index of the next step from `from` in direction `dir` whose target is on
+  // screen, or -1 when there is none.
+  function nextAvailable(steps, from, dir) {
+    for (var j = from + dir; j >= 0 && j < steps.length; j += dir) {
+      if (available(steps[j])) return j;
+    }
+    return -1;
   }
 
   function finish(completed) {
@@ -366,38 +382,46 @@
     s.nodes.root.remove();
 
     var focusId = completed && last && last.focusOnDone;
-    var target = focusId ? document.getElementById(focusId) : s.returnFocus;
-    if (target && target.isConnected && target !== document.body) {
+    var preferred = focusId ? document.getElementById(focusId) : null;
+    [preferred, s.returnFocus].some(function (t) {
+      if (!t || !t.isConnected || t === document.body) return false;
       try {
-        target.focus({ preventScroll: true });
+        t.focus({ preventScroll: true });
       } catch (e) {
-        /* element no longer focusable */
+        return false; /* element no longer focusable */
       }
-    }
+      return document.activeElement === t;
+    });
+    if (bothDone()) stopWatching();
   }
 
   function go(delta) {
     if (!state) return;
-    var i = state.index + delta;
-    if (i >= state.steps.length) {
-      finish(true);
+    var i = nextAvailable(state.steps, state.index, delta);
+    if (i < 0) {
+      if (delta > 0) finish(true);
       return;
     }
-    if (i < 0) return;
     show(i);
   }
 
   function show(i) {
     var n = state.nodes;
-    var step = state.steps[i];
-    var total = state.steps.length;
+    var steps = state.steps;
+    var step = steps[i];
     state.index = i;
+    // Count only the steps that can be shown right now.
+    var shown = steps.filter(function (s, j) {
+      return j === i || available(s);
+    });
+    var pos = shown.indexOf(step);
+    var isLast = nextAvailable(steps, i, 1) < 0;
 
-    n.count.textContent = "Step " + (i + 1) + " of " + total;
+    n.count.textContent = "Step " + (pos + 1) + " of " + shown.length;
     n.title.textContent = resolve(step.title);
     n.body.textContent = resolve(step.body);
-    n.back.hidden = i === 0;
-    n.next.textContent = i === total - 1 ? "Done" : "Next";
+    n.back.hidden = nextAvailable(steps, i, -1) < 0;
+    n.next.textContent = isLast ? "Done" : "Next";
     n.live.textContent = n.count.textContent + ": " + n.title.textContent;
 
     var target = step.target ? resolve(step.target) : null;
@@ -626,12 +650,28 @@
     }, wait);
   }
 
+  var observer = null;
+
+  function bothDone() {
+    return isDone("start") && isDone("answer");
+  }
+
+  // Nothing left to start automatically: stop watching the DOM. The Tour
+  // button keeps working without it.
+  function stopWatching() {
+    if (observer) observer.disconnect();
+    observer = null;
+  }
+
   function init() {
     // Our own overlay changes the DOM too; ignore mutations while it is open.
-    new MutationObserver(function () {
-      if (!state) check();
-    }).observe(document.body, { childList: true, subtree: true });
-    check();
+    if (!bothDone()) {
+      observer = new MutationObserver(function () {
+        if (!state) check();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      check();
+    }
 
     document.addEventListener("click", function (e) {
       var b = e.target.closest ? e.target.closest("#tour-button") : null;
