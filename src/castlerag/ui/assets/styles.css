@@ -48,6 +48,14 @@ body {
 
 /* ---- top bar ---- */
 .top-bar { padding: 6px 4px 16px; }
+/* Study session code (only rendered with CASTLERAG_STUDY_LOG set): quiet, and
+   the code itself selects in one tap so it is easy to copy into the form. */
+.session-code { font-weight: 500; max-width: 100%; }
+.session-code-value {
+    font-family: var(--mantine-font-family-monospace);
+    letter-spacing: 0.05em;
+    user-select: all;
+}
 .brand-mark {
     width: 22px;
     height: 22px;
