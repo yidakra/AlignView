@@ -12,12 +12,17 @@ Four callbacks drive the workspace:
 
 Thread state lives in ``dcc.Store``s; the moment store carries precomputed embed
 URLs so the click/review callbacks never need the mirror.
+
+With a :class:`~castlerag.ui.study_log.StudyLog` enabled, the callbacks also
+take the per-tab session code (``study-session`` store) as a trailing State and
+append each interaction to the study log.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Dict, List, Optional, Tuple
 
 import dash_mantine_components as dmc
@@ -31,6 +36,7 @@ from castlerag.ui.figures import (
     pipeline_funnel_figure,
 )
 from castlerag.ui.layout import info_icon
+from castlerag.ui.study_log import StudyLog, is_session_code, new_session_code
 from castlerag.ui.youtube import YouTubeMirror
 
 _MAX_ITERATIONS = 5
@@ -890,9 +896,65 @@ def _thread_outputs() -> List[Output]:
 
 
 def register_callbacks(
-    app: object, engine: ChatEngine, mirror: YouTubeMirror
+    app: object,
+    engine: ChatEngine,
+    mirror: YouTubeMirror,
+    study_log: Optional[StudyLog] = None,
 ) -> None:
-    """Register the dashboard callbacks on ``app``."""
+    """Register the dashboard callbacks on ``app``.
+
+    With an enabled ``study_log`` the logged callbacks get the session code as
+    an extra trailing State (``*study``); disabled, their signatures and the
+    layout are unchanged.
+    """
+    study_log = study_log or StudyLog(None)
+    study_state = (
+        [State("study-session", "data")] if study_log.enabled else []
+    )
+
+    def _log(study: tuple, event: str, **fields: object) -> None:
+        if study_log.enabled:
+            study_log.log(study[0] if study else None, event, **fields)
+
+    def _log_answer(
+        study: tuple,
+        group: Optional[Dict[str, object]],
+        started: float,
+        *,
+        group_id: str,
+        iteration: int,
+        error: bool = False,
+    ) -> None:
+        moments = (group or {}).get("moments") or []
+        answer = str((group or {}).get("answer_text") or "")
+        _log(
+            study,
+            "answer",
+            group_id=group_id,
+            iteration=iteration,
+            latency_ms=round((time.monotonic() - started) * 1000),
+            support=((group or {}).get("claim") or {}).get("support"),  # type: ignore[union-attr]
+            n_moments=len(moments),  # type: ignore[arg-type]
+            error=error,
+            empty=not answer.strip() or not moments,
+        )
+
+    if study_log.enabled:
+
+        @app.callback(  # type: ignore[attr-defined,untyped-decorator]
+            Output("study-session", "data"),
+            Output("session-code", "children"),
+            Input("study-session", "data"),
+        )
+        def on_study_session(code: Optional[str]) -> tuple:
+            """Issue this tab's session code (kept across reloads) and log the load."""
+            if not is_session_code(code):
+                code = new_session_code()
+            study_log.log(code, "page_load")
+            return code, [
+                "Session code: ",
+                html.Span(code, className="session-code-value"),
+            ]
 
     # ---- 1. Disable Send when input is empty ----------------------------------
     app.clientside_callback(
@@ -965,12 +1027,14 @@ def register_callbacks(
         Output("compose-wrap", "hidden", allow_duplicate=True),
         Output("refined-query-input", "value", allow_duplicate=True),
         Input("clear-thread-button", "n_clicks"),
+        *study_state,
         prevent_initial_call=True,
     )
-    def on_clear(n_clicks: Optional[int]) -> tuple:
+    def on_clear(n_clicks: Optional[int], *study: object) -> tuple:
         """Reset all thread and viewer state to the initial empty dashboard."""
         if not n_clicks:
             raise PreventUpdate
+        _log(study, "clear")
         return (
             [],
             {"claim": None, "iteration": 0, "next_seq": 1},
@@ -1001,12 +1065,16 @@ def register_callbacks(
         Output("export-download", "data"),
         Input("export-thread-button", "n_clicks"),
         State("thread-store", "data"),
+        *study_state,
         prevent_initial_call=True,
     )
-    def on_export_thread(n_clicks: Optional[int], thread: Optional[list]) -> object:
+    def on_export_thread(
+        n_clicks: Optional[int], thread: Optional[list], *study: object
+    ) -> object:
         """Serialize the current thread to JSON and trigger a browser download."""
         if not n_clicks or not thread:
             raise PreventUpdate
+        _log(study, "export", n_groups=len(thread))
         turns = []
         for g in thread:
             turns.append({
@@ -1056,6 +1124,7 @@ def register_callbacks(
         State("iteration-store", "data"),
         State("focus-store", "data"),
         State("review-store", "data"),
+        *study_state,
         prevent_initial_call=True,
     )
     def on_ask_new(
@@ -1064,6 +1133,7 @@ def register_callbacks(
         iteration_store: Optional[Dict[str, object]],
         focus: Optional[Dict[str, object]],
         review: Optional[Dict[str, Dict[str, str]]],
+        *study: object,
     ) -> tuple:
         """Append a new investigation block, freezing the current iteration.
 
@@ -1095,15 +1165,27 @@ def register_callbacks(
 
         seq = int(store.get("next_seq", 1) or 1) if thread else 1
         group_id = f"g{seq}"
-        result = engine.answer(question)
-        group = _serialize_group(
-            result,
-            group_id=group_id,
-            iteration=1,
-            question=question,
-            mirror=mirror,
-            is_refinement=False,
+        _log(
+            study, "ask",
+            question=question, is_refinement=False, group_id=group_id, iteration=1,
         )
+        started = time.monotonic()
+        try:
+            result = engine.answer(question)
+            group = _serialize_group(
+                result,
+                group_id=group_id,
+                iteration=1,
+                question=question,
+                mirror=mirror,
+                is_refinement=False,
+            )
+        except Exception:
+            _log_answer(
+                study, None, started, group_id=group_id, iteration=1, error=True
+            )
+            raise
+        _log_answer(study, group, started, group_id=group_id, iteration=1)
         moments = group["moments"]  # type: ignore[index]
         if not moments:
             # No evidence moments (retrieval failure edge case); nothing to focus.
@@ -1138,6 +1220,7 @@ def register_callbacks(
         State("iteration-store", "data"),
         State("focus-store", "data"),
         State("review-store", "data"),
+        *study_state,
         prevent_initial_call=True,
     )
     def on_send_refined(
@@ -1147,6 +1230,7 @@ def register_callbacks(
         iteration_store: Optional[Dict[str, object]],
         focus: Optional[Dict[str, object]],
         review: Optional[Dict[str, Dict[str, str]]],
+        *study: object,
     ) -> tuple:
         """Freeze the current iteration's verdicts and append the next one.
 
@@ -1182,25 +1266,50 @@ def register_callbacks(
 
         new_iteration = current_iteration + 1
         seq = int(store.get("next_seq", len(thread) + 1) or (len(thread) + 1))
+        new_gid = f"g{seq}"
+        draft = current.get("drafted_refined_query")
+        _log(
+            study, "refine_send",
+            query=refined_query,
+            from_group_id=current["group_id"],
+            # None when no draft was offered (e.g. submitted before drafting).
+            edited=None if draft is None else refined_query != str(draft).strip(),
+        )
+        _log(
+            study, "ask",
+            question=refined_query, is_refinement=True,
+            group_id=new_gid, iteration=new_iteration,
+        )
+        started = time.monotonic()
         # Anchor the refine on the moment under review so a rejected angle is
         # swapped in-scene (same timestamp) rather than teleporting to a new one.
         anchor = _moment_anchor(current, str(moment_id)) if moment_id else None
-        result = engine.refine(
-            str(claim),
-            refined_query,
-            new_iteration,
-            exclude_cameras=_rejected_cameras(thread, review),
-            anchor=anchor,
-            reviews=review,
-        )
-        group = _serialize_group(
-            result,
-            group_id=f"g{seq}",
-            iteration=new_iteration,
-            question=refined_query,
-            mirror=mirror,
-            is_refinement=True,
-            refined_query=refined_query,
+        try:
+            result = engine.refine(
+                str(claim),
+                refined_query,
+                new_iteration,
+                exclude_cameras=_rejected_cameras(thread, review),
+                anchor=anchor,
+                reviews=review,
+            )
+            group = _serialize_group(
+                result,
+                group_id=new_gid,
+                iteration=new_iteration,
+                question=refined_query,
+                mirror=mirror,
+                is_refinement=True,
+                refined_query=refined_query,
+            )
+        except Exception:
+            _log_answer(
+                study, None, started,
+                group_id=new_gid, iteration=new_iteration, error=True,
+            )
+            raise
+        _log_answer(
+            study, group, started, group_id=new_gid, iteration=new_iteration
         )
         moments = group["moments"]  # type: ignore[index]
         if not moments:
@@ -1232,12 +1341,14 @@ def register_callbacks(
         Input({"type": "moment", "gid": ALL, "mid": ALL}, "n_clicks"),
         State("thread-store", "data"),
         State("iteration-store", "data"),
+        *study_state,
         prevent_initial_call=True,
     )
     def on_moment_click(
         n_clicks: List[int],
         thread: Optional[List[Dict[str, object]]],
         iteration_store: Optional[Dict[str, object]],
+        *study: object,
     ) -> tuple:
         """Focus the clicked moment, re-seeking the three camera embeds."""
         triggered = ctx.triggered_id
@@ -1260,6 +1371,11 @@ def register_callbacks(
         # Restore any saved verdicts for this moment; pending if never reviewed.
         saved = (group.get("reviews") or {}).get(triggered["mid"])  # type: ignore[union-attr]
         review = dict(saved) if saved else _pending_review(moment)
+        _log(
+            study, "select_moment",
+            source="moment_row", group_id=triggered["gid"],
+            moment_id=triggered["mid"], camera_id=None, frozen=frozen,
+        )
 
         # The compose box stays hidden until the reviewer submits; _viewer_outputs
         # decides whether the "Submit reviews" button is shown.
@@ -1281,11 +1397,13 @@ def register_callbacks(
         Output("refined-query-input", "value", allow_duplicate=True),
         Input({"type": "cite", "gid": ALL, "mid": ALL, "cam": ALL}, "n_clicks"),
         State("thread-store", "data"),
+        *study_state,
         prevent_initial_call=True,
     )
     def on_citation_click(
         n_clicks: List[int],
         thread: Optional[List[Dict[str, object]]],
+        *study: object,
     ) -> tuple:
         """Focus a cited moment and autoplay the cited camera from its timestamp.
 
@@ -1311,6 +1429,11 @@ def register_callbacks(
 
         saved = (group.get("reviews") or {}).get(triggered["mid"])  # type: ignore[union-attr]
         review = dict(saved) if saved else _pending_review(moment)
+        _log(
+            study, "select_moment",
+            source="citation", group_id=triggered["gid"],
+            moment_id=triggered["mid"], camera_id=triggered["cam"], frozen=frozen,
+        )
 
         return (
             focus,
@@ -1338,6 +1461,7 @@ def register_callbacks(
         State("review-store", "data"),
         State("thread-store", "data"),
         State("focus-store", "data"),
+        *study_state,
         prevent_initial_call=True,
     )
     def on_review_action(
@@ -1346,6 +1470,7 @@ def register_callbacks(
         review: Optional[Dict[str, Dict[str, str]]],
         thread: Optional[List[Dict[str, object]]],
         focus: Optional[Dict[str, object]],
+        *study: object,
     ) -> tuple:
         """Record a per-camera verdict and auto-draft its justification.
 
@@ -1414,6 +1539,15 @@ def register_callbacks(
                         "justification": suggestion,
                         "suggestion": suggestion,
                     }
+            _log(
+                study, "verdict",
+                group_id=focus_gid, moment_id=(focus or {}).get("moment_id"),
+                camera_id=cam, verdict=triggered["action"],
+                previous=prev_state,
+                # Length of what the box now holds (a fresh AI draft or the
+                # reviewer's own text); never the text itself.
+                justification_len=len(review[cam].get("justification") or ""),
+            )
 
         # Persist verdicts onto the live group so they survive navigation.
         _persist_review(thread, focus, review)
@@ -1444,6 +1578,7 @@ def register_callbacks(
         State("review-store", "data"),
         State("thread-store", "data"),
         State("focus-store", "data"),
+        *study_state,
         prevent_initial_call=True,
     )
     def on_submit_reviews(
@@ -1452,6 +1587,7 @@ def register_callbacks(
         review: Optional[Dict[str, Dict[str, str]]],
         thread: Optional[List[Dict[str, object]]],
         focus: Optional[Dict[str, object]],
+        *study: object,
     ) -> tuple:
         """Commit the three verdicts: converge if all confirmed, else draft a query.
 
@@ -1471,8 +1607,23 @@ def register_callbacks(
         # Pick up any edits the reviewer made to the justification boxes, persist.
         review = _capture_justifications(review, ctx.states_list)
         _persist_review(thread, focus, review)
+        converged = _should_converge(review)
+        _log(
+            study, "submit_reviews",
+            group_id=focus_gid, moment_id=(focus or {}).get("moment_id"),
+            verdicts={cam: r.get("state") for cam, r in review.items()},
+            justification_lens={
+                cam: len(r.get("justification") or "") for cam, r in review.items()
+            },
+            # Per camera: did the reviewer change the AI-drafted justification?
+            justification_edited={
+                cam: (r.get("justification") or "") != (r.get("suggestion") or "")
+                for cam, r in review.items()
+            },
+            converged=converged,
+        )
 
-        if _should_converge(review):
+        if converged:
             return review, thread, True, "", _converged_banner(), False
 
         claim_text = _focused_claim_text(thread, focus)
@@ -1480,5 +1631,8 @@ def register_callbacks(
         prefilled = engine.suggest_refined_query(
             claim_text, review, question=question_text
         )
+        # Keep the draft on the live group so a later refine_send can tell
+        # whether the reviewer edited it.
+        thread[-1] = {**thread[-1], "drafted_refined_query": prefilled}
         return review, thread, False, prefilled, [], True
 
