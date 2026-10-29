@@ -96,6 +96,44 @@ app gates every request, so the live GPU backend is never exposed unauthenticate
 
 ---
 
+## User-study interaction log (opt-in)
+
+For a user-study session, set `CASTLERAG_STUDY_LOG` to a file path and the
+dashboard appends one JSON line per interaction to it. Each browser tab then
+shows a quiet **Session code: K7F2QX** badge in the top bar. Participants copy
+it into the Google Form, and that code is the only link between a form
+response and the log. A reload keeps the code; a new tab or private window
+gets a new one. Unset (the default), nothing is written and no code is shown.
+
+```bash
+read -rs -p "study password: " PW; echo
+CASTLERAG_UI_BASIC_AUTH="study:${PW}" sbatch --account=gisr109364 \
+  --export=ALL,PUBLIC_TUNNEL=1,CASTLERAG_STUDY_LOG=/projects/prjs2298/user_study/logs/session_$(date +%F).jsonl \
+  scripts/slurm/ui_live.slurm
+unset PW
+```
+
+The password is read without echo and handed to `sbatch` through its
+environment (`--export=ALL` passes it on), so it never appears in shell
+history or in the `sbatch` command line that other users on the login node
+can see with `ps`.
+
+Each line has `ts` (UTC, milliseconds), `session`, `event` and
+event-specific fields (`page_load` carries `new_session`, false on a reload). Events: `page_load`, `ask`, `answer`, `select_moment`,
+`verdict`, `submit_reviews`, `refine_send`, `clear` and `export`. Question and
+refined-query text are logged; justification text is not (only its length).
+IP addresses, user agents and the basic-auth user are never logged, and
+plays inside the YouTube embeds can't be seen. The parent directory is created
+if needed and the file follows the job's `umask 0007`, so the group can read it.
+
+**The consent text must say that interactions in the interface, including
+the questions typed, are logged under the session code.**
+
+`python scripts/study_log_summary.py <log.jsonl>` prints per-session counts
+(asks, answers, mean latency, verdicts, refine sends).
+
+---
+
 ## Pre-flight checklist
 
 - [ ] Confirm SURF/Snellius acceptable-use policy permits a public tunnel.
