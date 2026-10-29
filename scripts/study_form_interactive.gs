@@ -97,12 +97,14 @@ function buildInteractiveForm() {
   const live = form.addMultipleChoiceItem()
     .setTitle('Once CastleRAG has loaded, what does the badge in its top bar say, next to "16 cams"?')
     .setRequired(true);
+  // The session code lives past the live check: a required item on the same
+  // page would block the jump to the exit page for people without a session.
+  const orientation = form.addPageBreakItem().setTitle('How CastleRAG works')
+    .setHelpText('Have a look around CastleRAG while you read this.');
   form.addTextItem().setTitle('Session code')
     .setHelpText('Copy the session code shown in CastleRAG\'s top bar. It links what you do in ' +
       'CastleRAG to this form without identifying you.')
     .setRequired(true);
-  const orientation = form.addPageBreakItem().setTitle('How CastleRAG works')
-    .setHelpText('Have a look around CastleRAG while you read this.');
   addOrientationImage_(form);
   form.addMultipleChoiceItem().setTitle('What does the yellow "Partial support" badge mean?')
     .setChoiceValues(['The answer is wrong', 'The footage only partly backs the answer',
@@ -288,8 +290,10 @@ function addOrientationImage_(form) {
 }
 
 function openPage_(formId) {
-  return FormApp.openById(formId).getItems(FormApp.ItemType.PAGE_BREAK)
+  const page = FormApp.openById(formId).getItems(FormApp.ItemType.PAGE_BREAK)
     .map(it => it.asPageBreakItem()).find(pb => pb.getTitle() === OPEN_TITLE);
+  if (!page) throw new Error(`No page titled "${OPEN_TITLE}" in form ${formId}; was it built by buildInteractiveForm()?`);
+  return page;
 }
 
 /**
