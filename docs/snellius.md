@@ -24,7 +24,7 @@ to.  No prior CastleRAG context required.
 ssh <user>@snellius.surf.nl
 mkdir -p /scratch/$USER/castle2024 /scratch/$USER/castle_derived /scratch/$USER/castle_outputs ~/code
 cd ~/code
-git clone git@github.com:yidakra/CastleRAG.git
+git clone git@github.com:yidakra/AlignView.git
 cd CastleRAG
 ```
 
@@ -35,7 +35,7 @@ use, or, for a shared checkout that only pulls, add a read-only deploy key:
 ssh-keygen -t ed25519 -N "" -C "snellius-castlerag-readonly" -f ~/.ssh/castlerag_deploy
 cat ~/.ssh/castlerag_deploy.pub   # add under Settings > Deploy keys, read-only
 printf '\nHost github-castlerag\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/castlerag_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
-git clone git@github-castlerag:yidakra/CastleRAG.git
+git clone git@github-castlerag:yidakra/AlignView.git
 ```
 
 Push from your own machine; the deploy key can only pull.
