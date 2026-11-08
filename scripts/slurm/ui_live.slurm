@@ -32,6 +32,34 @@ CONF="${CONF:-configs/snellius_project.yaml}"   # index + derived data in /proje
 SC="/scratch-shared/${USER}"
 COLL="castle_multimodal_v1"
 UI_PORT="${UI_PORT:-8050}"
+
+# Trim the basic-auth credentials the same way the UI does, so whitespace-only
+# credentials count as unset (the UI would install no auth gate for them) and
+# the readiness probe sends exactly what the UI checks.
+CASTLERAG_UI_BASIC_AUTH="$(printf '%s' "${CASTLERAG_UI_BASIC_AUTH:-}" \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+export CASTLERAG_UI_BASIC_AUTH
+
+# Check the credentials before any GPU service starts. A public tunnel needs
+# them, and the UI refuses a value without a non-empty user and password.
+_auth="${CASTLERAG_UI_BASIC_AUTH}"
+if [ -z "${_auth}" ]; then
+    if [ -n "${NGROK_DOMAIN:-}" ] || [ "${PUBLIC_TUNNEL:-0}" = "1" ]; then
+        echo "[ui] ABORT: a public tunnel needs CASTLERAG_UI_BASIC_AUTH=user:password."
+        exit 2
+    fi
+elif [[ "${_auth}" != *:* ]] || [ -z "${_auth%%:*}" ] || [ -z "${_auth#*:}" ]; then
+    echo "[ui] ABORT: CASTLERAG_UI_BASIC_AUTH must be user:password with both parts non-empty."
+    exit 2
+fi
+unset _auth
+
+# If something already answers on UI_PORT, the readiness probe below could
+# succeed against it and a tunnel would publish the wrong service.
+if curl -s -o /dev/null --connect-timeout 2 --max-time 5 "http://localhost:${UI_PORT}/"; then
+    echo "[ui] ABORT: port ${UI_PORT} is already in use on $(hostname); set UI_PORT=..."
+    exit 2
+fi
 export HF_HUB_OFFLINE=1
 export HF_HUB_DISABLE_TELEMETRY=1
 export VLLM_LOGGING_LEVEL=WARNING
@@ -116,20 +144,6 @@ export VLLM_BASE_URL="http://localhost:8201/v1"        # Qwen3-VL rerank + gener
 # interaction log; left unset, nothing is logged. See docs/demo.md.
 if [ -n "${CASTLERAG_STUDY_LOG:-}" ]; then
     echo "[ui] study interaction log -> ${CASTLERAG_STUDY_LOG}"
-fi
-
-# Trim the basic-auth credentials the same way the UI does, so whitespace-only
-# credentials count as unset (the UI would install no auth gate for them) and
-# the readiness probe sends exactly what the UI checks.
-CASTLERAG_UI_BASIC_AUTH="$(printf '%s' "${CASTLERAG_UI_BASIC_AUTH:-}" \
-    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-export CASTLERAG_UI_BASIC_AUTH
-
-# If something already answers on UI_PORT, the readiness probe below could
-# succeed against it and a tunnel would publish the wrong service.
-if curl -s -o /dev/null --connect-timeout 2 --max-time 5 "http://localhost:${UI_PORT}/"; then
-    echo "[ui] ABORT: port ${UI_PORT} is already in use on $(hostname); set UI_PORT=..."
-    exit 2
 fi
 
 # wait_ui_ready: poll the dashboard until it answers (with the basic-auth
@@ -252,7 +266,14 @@ if [ -n "${NGROK_DOMAIN:-}" ]; then
 [ui] ============================================================
 
 EOF
-    wait "$UI_PID"
+    # Stop the job if the tunnel or the UI exits, so a dead public link does not
+    # keep holding the GPUs.
+    while kill -0 "$UI_PID" 2>/dev/null && kill -0 "$NG_PID" 2>/dev/null; do sleep 10; done
+    if ! kill -0 "$NG_PID" 2>/dev/null; then
+        echo "[ui] ERROR: ngrok tunnel exited; stopping the job. log:"; tail -20 "${NG_LOG}"; exit 1
+    fi
+    echo "[ui] UI process exited; stopping the job."
+    wait "$UI_PID" || exit 1
     exit 0
 fi
 
