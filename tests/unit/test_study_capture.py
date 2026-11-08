@@ -11,7 +11,6 @@ from castlerag.study import capture as cap
 from castlerag.ui.youtube import YouTubeMirror
 
 REPO = Path(__file__).resolve().parents[2]
-CSV = REPO / "data" / "smoke_day1.csv"
 
 
 @pytest.fixture()
@@ -81,17 +80,6 @@ def _export() -> dict:
             },
         ]
     }
-
-
-def test_all_candidates_match_csv():
-    tasks = cap.match_questions(cap.CANDIDATE_QUESTIONS, cap.load_ground_truth(CSV))
-    assert [t.number for t in tasks] == list(range(1, 10))
-    truths = {t.question: t.truth for t in tasks}
-    assert truths["Which brand of kettle is in the kitchen?"] == "Norvik"
-    assert truths["When did Cathal want pancakes?"] == "Friday"
-    coffee = "Who brought the bread to the table for breakfast on the first day?"
-    assert truths[coffee] == "Werner"
-    assert tasks[0].choices[0] == "Norvik" and len(tasks[0].choices) == 4
 
 
 def test_match_questions_is_whitespace_and_case_insensitive():

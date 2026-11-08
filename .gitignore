@@ -71,3 +71,10 @@ configs/vps_local.yaml
 # Playwright MCP captures and ad-hoc UI screenshots
 .playwright-mcp/
 /test-*.png
+
+# Private CASTLE question sets (not public; keep local copies only)
+data/castle_question_bank.csv
+data/smoke_day1.csv
+data/smoke_day1_questions.json
+scripts/study_form.gs
+scripts/study_form_interactive.gs
