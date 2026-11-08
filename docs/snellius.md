@@ -24,18 +24,20 @@ to.  No prior CastleRAG context required.
 ssh <user>@snellius.surf.nl
 mkdir -p /scratch/$USER/castle2024 /scratch/$USER/castle_derived /scratch/$USER/castle_outputs ~/code
 cd ~/code
-git clone git@github.com:yidakra/AlignView.git
+git clone https://github.com/yidakra/AlignView.git CastleRAG
 cd CastleRAG
 ```
 
-The repository is private. Clone with an SSH key that your GitHub account can
-use, or, for a shared checkout that only pulls, add a read-only deploy key:
+The repository is public, so the HTTPS clone needs no key. The checkout goes into
+`CastleRAG`, the directory name the SLURM scripts and the rest of this guide use.
+To push from Snellius, clone over SSH with a key your GitHub account can use, or,
+for a shared checkout that only pulls over SSH, add a read-only deploy key:
 
 ```bash
 ssh-keygen -t ed25519 -N "" -C "snellius-castlerag-readonly" -f ~/.ssh/castlerag_deploy
 cat ~/.ssh/castlerag_deploy.pub   # add under Settings > Deploy keys, read-only
 printf '\nHost github-castlerag\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/castlerag_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
-git clone git@github-castlerag:yidakra/AlignView.git
+git clone git@github-castlerag:yidakra/AlignView.git CastleRAG
 ```
 
 Push from your own machine; the deploy key can only pull.
