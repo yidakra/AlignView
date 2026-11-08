@@ -11,39 +11,39 @@ import numpy as np
 import pytest
 from typer.testing import CliRunner
 
-from castlerag.cli import app
-from castlerag.config import CastleRAGConfig
-from castlerag.eval.run_eval import (
+from alignview.cli import app
+from alignview.config import AlignViewConfig
+from alignview.eval.run_eval import (
     IndexArtifactReport,
     PipelineDependencyError,
     _load_optional_visual_index,
 )
-from castlerag.index.io import write_jsonl_records
-from castlerag.index.pipeline import LoadedArtifacts, build_visual_bm25_artifact
-from castlerag.index.visual_lexical import (
+from alignview.index.io import write_jsonl_records
+from alignview.index.pipeline import LoadedArtifacts, build_visual_bm25_artifact
+from alignview.index.visual_lexical import (
     VISUAL_TEXT_INDEX_NAME,
     build_visual_bm25_index,
     build_visual_docs,
     load_visual_bm25_index,
     load_visual_bm25_index_if_present,
 )
-from castlerag.retrieval.search import retrieve
-from castlerag.retrieval.visual_lexical import (
+from alignview.retrieval.search import retrieve
+from alignview.retrieval.visual_lexical import (
     DEFAULT_VISUAL_TEXT_ROUTE_WEIGHTS,
     DEFAULT_VISUAL_TEXT_TOP_K,
     score_visual_docs,
     visual_lane_top_k,
     visual_lane_weight,
 )
-from castlerag.routing.question_router import route_question
-from castlerag.schemas import (
+from alignview.routing.question_router import route_question
+from alignview.schemas import (
     ClipRecord,
     EvalQuestion,
     EventSummaryRecord,
     TranscriptWindow,
 )
 
-run_eval_module = importlib.import_module("castlerag.eval.run_eval")
+run_eval_module = importlib.import_module("alignview.eval.run_eval")
 
 _BASE = 1_672_531_200_000
 
@@ -308,7 +308,7 @@ def test_visual_lane_config_helpers_fall_back_to_defaults():
         assert visual_lane_weight(route, legacy_cfg) == weight
     assert visual_lane_weight("unknown_route", legacy_cfg) == 1.0
 
-    cfg = CastleRAGConfig().retrieval
+    cfg = AlignViewConfig().retrieval
     assert visual_lane_top_k(cfg) == 20
     assert visual_lane_weight("static_visual", cfg) == 2.0
     assert visual_lane_weight("speech_text", cfg) == 0.5
@@ -513,7 +513,7 @@ def _report(tmp_path: Path) -> IndexArtifactReport:
 
 
 def test_run_eval_loads_visual_index_only_when_present(tmp_path: Path):
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     cfg.embedding.cache_dir = str(tmp_path)
     assert _load_optional_visual_index(cfg, _report(tmp_path)) is None
     clips, events = _corpus()
@@ -523,7 +523,7 @@ def test_run_eval_loads_visual_index_only_when_present(tmp_path: Path):
 
 
 def test_run_eval_reports_corrupt_visual_index(tmp_path: Path):
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     cfg.embedding.cache_dir = str(tmp_path)
     (tmp_path / VISUAL_TEXT_INDEX_NAME).write_bytes(b"not a pickle")
     with pytest.raises(PipelineDependencyError, match="visual-text BM25 index"):
@@ -533,7 +533,7 @@ def test_run_eval_reports_corrupt_visual_index(tmp_path: Path):
 def test_build_default_pipeline_passes_visual_index_to_retrieve(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     cfg.embedding.cache_dir = str(tmp_path)
     clips, events = _corpus()
     build_visual_bm25_index(clips, events, tmp_path / VISUAL_TEXT_INDEX_NAME)
@@ -606,7 +606,7 @@ class _ScoresBM25:
 
 
 def _vdoc(record_id: str, camera_id: str, text: str, day: str = "day1"):
-    from castlerag.index.visual_lexical import VisualTextDoc
+    from alignview.index.visual_lexical import VisualTextDoc
 
     return VisualTextDoc(
         record_id=record_id,
@@ -625,7 +625,7 @@ _CHOICES = {"a": "Norvik", "b": "Brema", "c": "Miele", "d": "LG"}
 
 
 def test_score_visual_docs_excludes_cameras_before_truncation():
-    from castlerag.retrieval.visual_lexical import score_visual_docs
+    from alignview.retrieval.visual_lexical import score_visual_docs
 
     docs = [
         _vdoc("k1", "Kitchen", "fridge with NORVIK logo"),
@@ -645,7 +645,7 @@ def test_score_visual_docs_excludes_cameras_before_truncation():
 
 
 def test_score_visual_docs_ignores_docs_with_no_lexical_evidence():
-    from castlerag.retrieval.visual_lexical import score_visual_docs
+    from alignview.retrieval.visual_lexical import score_visual_docs
 
     docs = [
         _vdoc("x1", "Allie", "someone reads a book"),
@@ -664,7 +664,7 @@ def test_score_visual_docs_ignores_docs_with_no_lexical_evidence():
 
 
 def test_score_visual_docs_caches_doc_features_on_index():
-    from castlerag.retrieval.visual_lexical import score_visual_docs
+    from alignview.retrieval.visual_lexical import score_visual_docs
 
     docs = [_vdoc("x2", "Bjorn", "NORVIK sticker on the fridge")]
     index = SimpleNamespace(bm25=_ScoresBM25([1.0]), docs=docs)
@@ -691,7 +691,7 @@ def _cli_cfg(tmp_path: Path) -> Path:
 
 
 def test_cli_retrieve_reports_unreadable_visual_index(tmp_path: Path, monkeypatch):
-    import castlerag.cli as cli_module
+    import alignview.cli as cli_module
 
     cfg_path = _cli_cfg(tmp_path)
     cache_dir = tmp_path / "embeddings"
@@ -727,7 +727,7 @@ def test_cli_index_lexical_only_dry_run_reports_and_writes_nothing(tmp_path: Pat
 
 def test_build_visual_bm25_index_write_is_atomic(tmp_path: Path, monkeypatch):
     """A failed write must leave the previous index intact and no temp file."""
-    import castlerag.index.visual_lexical as vl_module
+    import alignview.index.visual_lexical as vl_module
 
     out = tmp_path / VISUAL_TEXT_INDEX_NAME
     clips, events = _corpus()
@@ -745,7 +745,7 @@ def test_build_visual_bm25_index_write_is_atomic(tmp_path: Path, monkeypatch):
 
 
 def test_score_visual_docs_answer_stopwords_do_not_count_as_evidence():
-    from castlerag.retrieval.visual_lexical import score_visual_docs
+    from alignview.retrieval.visual_lexical import score_visual_docs
 
     docs = [
         _vdoc("g1", "Allie", "a person walks in the garden"),
@@ -763,7 +763,7 @@ def test_score_visual_docs_answer_stopwords_do_not_count_as_evidence():
 
 
 def test_score_visual_docs_yes_no_choices_are_not_evidence():
-    from castlerag.retrieval.visual_lexical import score_visual_docs
+    from alignview.retrieval.visual_lexical import score_visual_docs
 
     docs = [
         _vdoc("g1", "Allie", "no one is at the table"),
@@ -797,10 +797,10 @@ def test_build_visual_bm25_index_skips_tokenless_docs(tmp_path: Path):
 
 def test_rrf_representative_is_first_seen_not_highest_raw_score():
     """A lexical hit must not replace the dense point for a shared record."""
-    from castlerag.retrieval.search import reciprocal_rank_fusion
+    from alignview.retrieval.search import reciprocal_rank_fusion
 
     dense = _vdoc("shared", "Allie", "NORVIK fridge")
-    from castlerag.retrieval.visual_lexical import score_visual_docs
+    from alignview.retrieval.visual_lexical import score_visual_docs
 
     lexical_hit = score_visual_docs(
         visual_index=SimpleNamespace(bm25=_ScoresBM25([9.0]), docs=[dense]),
@@ -817,17 +817,17 @@ def test_rrf_representative_is_first_seen_not_highest_raw_score():
 
 
 def test_visual_text_route_weights_rejects_unknown_route_and_negative():
-    from castlerag.config import CastleRAGConfig
+    from alignview.config import AlignViewConfig
 
     with pytest.raises(ValueError, match="unknown route"):
-        CastleRAGConfig.model_validate(
+        AlignViewConfig.model_validate(
             {"retrieval": {"visual_text_route_weights": {"visual": 2.0}}}
         )
     with pytest.raises(ValueError, match=">= 0"):
-        CastleRAGConfig.model_validate(
+        AlignViewConfig.model_validate(
             {"retrieval": {"visual_text_route_weights": {"mixed": -1.0}}}
         )
-    cfg = CastleRAGConfig.model_validate(
+    cfg = AlignViewConfig.model_validate(
         {"retrieval": {"visual_text_route_weights": {"static_visual": 3.0}}}
     )
     assert cfg.retrieval.visual_text_route_weights == {"static_visual": 3.0}
@@ -835,16 +835,16 @@ def test_visual_text_route_weights_rejects_unknown_route_and_negative():
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
 def test_visual_text_route_weights_rejects_non_finite(bad):
-    from castlerag.config import CastleRAGConfig
+    from alignview.config import AlignViewConfig
 
     with pytest.raises(ValueError, match="finite"):
-        CastleRAGConfig.model_validate(
+        AlignViewConfig.model_validate(
             {"retrieval": {"visual_text_route_weights": {"mixed": bad}}}
         )
 
 
 def test_score_visual_docs_all_stopword_answer_phrase_is_not_evidence():
-    from castlerag.retrieval.visual_lexical import score_visual_docs
+    from alignview.retrieval.visual_lexical import score_visual_docs
 
     docs = [
         _vdoc("g1", "Allie", "two people chat in the garden"),
@@ -878,7 +878,7 @@ def test_cli_index_lexical_only_ignores_day_scope_guard(tmp_path: Path):
 
 def test_zero_route_weight_disables_visual_lane(tmp_path: Path):
     """weight 0 must behave exactly like no visual index at all."""
-    from castlerag.retrieval.search import retrieve
+    from alignview.retrieval.search import retrieve
 
     clips, events = _corpus()
     bundle = build_visual_bm25_index(clips, events, tmp_path / VISUAL_TEXT_INDEX_NAME)
@@ -906,7 +906,7 @@ def test_zero_route_weight_disables_visual_lane(tmp_path: Path):
 
 
 def test_all_stopword_query_substring_is_not_evidence():
-    from castlerag.retrieval.visual_lexical import score_visual_docs
+    from alignview.retrieval.visual_lexical import score_visual_docs
 
     docs = [
         _vdoc("g1", "Allie", "someone in the on the table"),
@@ -924,8 +924,8 @@ def test_all_stopword_query_substring_is_not_evidence():
 
 
 def test_visual_lane_defaults_match_config_and_base_yaml():
-    from castlerag.config import RetrievalConfig, load_config
-    from castlerag.retrieval import visual_lexical as vl
+    from alignview.config import RetrievalConfig, load_config
+    from alignview.retrieval import visual_lexical as vl
 
     defaults = RetrievalConfig()
     assert vl.DEFAULT_VISUAL_TEXT_TOP_K == defaults.visual_text_top_k
@@ -939,8 +939,8 @@ def test_visual_lane_defaults_match_config_and_base_yaml():
 def test_atomic_writers_fsync_before_replace(tmp_path: Path, monkeypatch):
     import os as os_module
 
-    from castlerag.index import io as io_module
-    from castlerag.index import visual_lexical as vl_module
+    from alignview.index import io as io_module
+    from alignview.index import visual_lexical as vl_module
 
     synced = []
     monkeypatch.setattr(os_module, "fsync", lambda fd: synced.append(fd))
@@ -967,7 +967,7 @@ def test_visual_index_is_json_not_pickle(tmp_path: Path):
 
 
 def test_score_visual_docs_phrase_gate_uses_tokenizer():
-    from castlerag.retrieval.visual_lexical import score_visual_docs
+    from alignview.retrieval.visual_lexical import score_visual_docs
 
     docs = [
         _vdoc("g1", "Allie", "it's on the table, there's a book"),

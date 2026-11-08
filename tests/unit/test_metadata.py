@@ -1,4 +1,4 @@
-"""Tests for src/castlerag/dataset/metadata.py"""
+"""Tests for src/alignview/dataset/metadata.py"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import List
 
 import pytest
 
-from castlerag.dataset.metadata import load_hour_metadata, load_metadata_csv
+from alignview.dataset.metadata import load_hour_metadata, load_metadata_csv
 
 # ---------------------------------------------------------------------------
 # Helpers

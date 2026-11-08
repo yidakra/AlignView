@@ -1,4 +1,4 @@
-# CastleRAG — Snellius config with every derived artifact in the project space.
+# AlignView — Snellius config with every derived artifact in the project space.
 #
 # Same cameras and endpoints as configs/snellius_fixedcams.yaml, but chunks,
 # frames, embedding caches, Qdrant storage and outputs live in

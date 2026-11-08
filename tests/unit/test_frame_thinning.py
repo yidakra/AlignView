@@ -7,9 +7,9 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from castlerag.frame_encoding import available_frames, sample_frames_evenly
-from castlerag.generation.answer import _gather_frame_paths
-from castlerag.retrieval.candidate_expand import _collect_frame_paths
+from alignview.frame_encoding import available_frames, sample_frames_evenly
+from alignview.generation.answer import _gather_frame_paths
+from alignview.retrieval.candidate_expand import _collect_frame_paths
 
 REPO = Path(__file__).resolve().parents[2]
 

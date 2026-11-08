@@ -34,10 +34,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from castlerag.config import load_config
-from castlerag.frame_encoding import available_frames
-from castlerag.fsutil import share_tmp_file
-from castlerag.preprocess.media import is_placeholder_or_card
+from alignview.config import load_config
+from alignview.frame_encoding import available_frames
+from alignview.fsutil import share_tmp_file
+from alignview.preprocess.media import is_placeholder_or_card
 
 PLACEHOLDER_THRESHOLD = 0.80  # same default as mark_placeholder_windows
 IO_WORKERS = 16

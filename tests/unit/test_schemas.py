@@ -1,8 +1,8 @@
-"""Tests for src/castlerag/schemas.py"""
+"""Tests for src/alignview/schemas.py"""
 
 import pytest
 
-from castlerag.schemas import (
+from alignview.schemas import (
     AuxRecord,
     ClipRecord,
     EvalQuestion,

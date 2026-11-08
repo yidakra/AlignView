@@ -1,4 +1,4 @@
-"""Tests for src/castlerag/preprocess/aux_link.py and has_reliable_timestamp."""
+"""Tests for src/alignview/preprocess/aux_link.py and has_reliable_timestamp."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import List
 from unittest.mock import patch
 
-from castlerag.preprocess.aux_link import link_aux_records
-from castlerag.schemas import AuxRecord, ClipRecord, EventSummaryRecord
+from alignview.preprocess.aux_link import link_aux_records
+from alignview.schemas import AuxRecord, ClipRecord, EventSummaryRecord
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -242,13 +242,13 @@ def test_link_aux_unreliable_timestamp_not_linked(tmp_path: Path):
 
 def test_photo_record_no_timestamp_marked_unreliable(tmp_path: Path):
     """Photo with no EXIF and no filename hint gets has_reliable_timestamp=False."""
-    from castlerag.preprocess.auxiliary import iter_photo_records
+    from alignview.preprocess.auxiliary import iter_photo_records
 
     photo_dir = tmp_path / "photo" / "Allie"
     photo_dir.mkdir(parents=True)
     (photo_dir / "IMG_no_ts.jpg").touch()
 
-    with patch("castlerag.preprocess.auxiliary._exif_unix_ms", return_value=None):
+    with patch("alignview.preprocess.auxiliary._exif_unix_ms", return_value=None):
         records = list(iter_photo_records(tmp_path, "Allie", "day1"))
 
     assert len(records) == 1
@@ -259,13 +259,13 @@ def test_photo_record_no_timestamp_marked_unreliable(tmp_path: Path):
 
 def test_photo_record_with_filename_hint_marked_reliable(tmp_path: Path):
     """Photo with a parseable filename timestamp gets has_reliable_timestamp=True."""
-    from castlerag.preprocess.auxiliary import iter_photo_records
+    from alignview.preprocess.auxiliary import iter_photo_records
 
     photo_dir = tmp_path / "photo" / "Allie"
     photo_dir.mkdir(parents=True)
     (photo_dir / "2023-01-05_08-00-00.jpg").touch()
 
-    with patch("castlerag.preprocess.auxiliary._exif_unix_ms", return_value=None):
+    with patch("alignview.preprocess.auxiliary._exif_unix_ms", return_value=None):
         records = list(iter_photo_records(tmp_path, "Allie", "day1"))
 
     assert len(records) == 1
@@ -275,7 +275,7 @@ def test_photo_record_with_filename_hint_marked_reliable(tmp_path: Path):
 
 def test_thermal_record_no_ts_hint_marked_unreliable(tmp_path: Path):
     """Thermal file without a timestamp hint gets has_reliable_timestamp=False."""
-    from castlerag.preprocess.auxiliary import iter_thermal_records
+    from alignview.preprocess.auxiliary import iter_thermal_records
 
     thermal_dir = tmp_path / "thermal"
     thermal_dir.mkdir(parents=True)
@@ -289,7 +289,7 @@ def test_thermal_record_no_ts_hint_marked_unreliable(tmp_path: Path):
 
 def test_thermal_record_with_ts_hint_marked_reliable(tmp_path: Path):
     """Thermal file with a parseable timestamp hint gets has_reliable_timestamp=True."""
-    from castlerag.preprocess.auxiliary import iter_thermal_records
+    from alignview.preprocess.auxiliary import iter_thermal_records
 
     thermal_dir = tmp_path / "thermal"
     thermal_dir.mkdir(parents=True)
@@ -307,20 +307,20 @@ def test_thermal_record_with_ts_hint_marked_reliable(tmp_path: Path):
 
 
 def test_photo_record_has_summary_text(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_photo_records
+    from alignview.preprocess.auxiliary import iter_photo_records
 
     photo_dir = tmp_path / "photo" / "Allie"
     photo_dir.mkdir(parents=True)
     (photo_dir / "IMG_001.jpg").touch()
 
-    with patch("castlerag.preprocess.auxiliary._exif_unix_ms", return_value=None):
+    with patch("alignview.preprocess.auxiliary._exif_unix_ms", return_value=None):
         records = list(iter_photo_records(tmp_path, "Allie", "day1"))
 
     assert records[0].summary_text == "Photo by Allie"
 
 
 def test_thermal_record_has_summary_text(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_thermal_records
+    from alignview.preprocess.auxiliary import iter_thermal_records
 
     thermal_dir = tmp_path / "thermal"
     thermal_dir.mkdir(parents=True)

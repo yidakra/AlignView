@@ -1,4 +1,4 @@
-# CastleRAG Snellius HPC configuration
+# AlignView Snellius HPC configuration
 # Deep-merges on top of configs/base.yaml — only overrides what differs.
 # Snellius gpu_a100: 1 GPU (quarter-node), 18 CPU cores, 120 GiB RAM, 128 SBU/GPU-hour.
 

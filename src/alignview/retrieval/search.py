@@ -1,0 +1,536 @@
+"""Query encoding, modality-scoped Qdrant search, and RRF score fusion."""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+
+import numpy as np
+
+from alignview.retrieval.filters import build_filter
+from alignview.retrieval.transcript_lexical import score_windows
+from alignview.retrieval.visual_lexical import (
+    score_visual_docs,
+    visual_lane_top_k,
+    visual_lane_weight,
+)
+from alignview.routing.question_router import RouteHints
+from alignview.schemas import EvalQuestion, RetrievalHit
+
+
+def reciprocal_rank_fusion(
+    ranked_lists: List[List[RetrievalHit]],
+    k: int = 60,
+    weights: Optional[List[float]] = None,
+) -> List[RetrievalHit]:
+    """Fuse multiple ranked lists into one using weighted RRF(k).
+
+    Each list contributes ``w / (k + rank)`` to a hit's score. When
+    ``weights`` is None all lists are weighted equally (w=1.0). Pass
+    route-aware weights to boost trusted sources (e.g. BM25 for speech
+    questions, video lanes for visual questions).
+    """
+    by_record: Dict[str, RetrievalHit] = {}
+    scores = defaultdict(float)
+    max_raw: Dict[str, float] = {}
+
+    for i, ranked in enumerate(ranked_lists):
+        w = (weights[i] if i < len(weights) else 1.0) if weights is not None else 1.0
+        for rank, hit in enumerate(ranked, start=1):
+            scores[hit.record_id] += w / (k + rank)
+            # The representative hit for a record is the first one seen. Lanes
+            # carry different score scales (cosine vs BM25), so comparing raw
+            # scores across them would let e.g. the visual-text lexical hit
+            # replace the Qdrant point and its payload for any shared record.
+            # List order therefore decides: the transcript pass lists BM25
+            # first (its window hit is the representative, as it always was),
+            # the multimodal pass lists the dense lanes before the visual-text
+            # lexical lane. The fused score is recomputed either way.
+            if hit.record_id not in by_record:
+                by_record[hit.record_id] = hit
+            # Preserve the best raw cosine similarity seen for this record across
+            # all query variants and modality lanes. Seed from the existing value
+            # (not 0.0) so a genuinely negative cosine is not clamped upward.
+            if hit.raw_score is not None:
+                prev = max_raw.get(hit.record_id)
+                max_raw[hit.record_id] = (
+                    hit.raw_score if prev is None else max(prev, hit.raw_score)
+                )
+
+    fused = []
+    for record_id, hit in by_record.items():
+        update: Dict[str, object] = {"score": scores[record_id]}
+        if record_id in max_raw:
+            update["raw_score"] = max_raw[record_id]
+        fused.append(hit.model_copy(update=update))
+
+    fused.sort(
+        key=lambda hit: (
+            -hit.score,
+            hit.absolute_start if hit.absolute_start is not None else float("inf"),
+            hit.record_id,
+        )
+    )
+    return [
+        hit.model_copy(update={"rank": rank}) for rank, hit in enumerate(fused, start=1)
+    ]
+
+
+def retrieve(
+    question: EvalQuestion,
+    hints: RouteHints,
+    qdrant_client: Any,
+    collection_name: str,
+    bm25_index: Any,
+    embed_client: Any,
+    retrieval_cfg: Any,
+    known_participants: Optional[Sequence[str]] = None,
+    visual_index: Any = None,
+) -> List[RetrievalHit]:
+    """Full dual-path retrieval for one question.
+
+    ``visual_index`` is the optional BM25 bundle over clip captions, OCR and
+    scene-graph text (``visual_text.json``). When given, it adds a lexical
+    lane to the multimodal RRF pass so object / on-screen-text questions can
+    match verbatim (modality gap). When ``None`` (index not built
+    yet) retrieval is byte-for-byte the pre-lane behaviour.
+
+    The dense participant filter is only kept when that participant actually
+    has indexed ego evidence for the hinted day, judged from the loaded BM25
+    transcript windows (each carries ``participant_id`` and ``day``). A hint
+    naming someone with no indexed stream (e.g. "Bao" on day 1, or an ego
+    camera not yet ingested by a ``--camera``-scoped run) would otherwise make
+    the dense lanes match zero ego points, so it is dropped there; BM25 still
+    uses it as a soft bonus. ``known_participants`` (normally
+    ``cfg.dataset.ego_cameras``) is only a fallback when the index carries no
+    participant-tagged windows; ``None`` then keeps every hint.
+    """
+    dense_participant = _dense_participant_hint(
+        hints.participant,
+        hints.day,
+        _indexed_participant_days(bm25_index),
+        known_participants,
+    )
+    query_variants = _query_variants(question, hints)
+    transcript_bm25 = score_windows(
+        bm25_index=bm25_index,
+        windows=bm25_index.windows,
+        query=question.query,
+        choices=question.answers,
+        day_hint=hints.day,
+        person_hint=hints.participant,
+        room_hint=hints.room,
+        top_k=retrieval_cfg.transcript_top_k,
+    )
+    # The dense lanes hard-exclude rejected cameras server-side, but BM25 runs
+    # locally and is fused in via RRF — so drop excluded cameras here too, or
+    # they leak back through the transcript lane.
+    if hints.exclude_cameras:
+        _excluded = set(hints.exclude_cameras)
+        transcript_bm25 = [
+            hit for hit in transcript_bm25 if hit.camera_id not in _excluded
+        ]
+    query_vectors = np.asarray(
+        embed_client.embed_texts(query_variants), dtype=np.float32
+    )
+    if query_vectors.ndim != 2:
+        raise ValueError(
+            f"Expected 2D query embedding matrix, got shape {query_vectors.shape}"
+        )
+
+    # Per-variant fusion weights: choices-expanded (index 1 for MCQ) is
+    # down-weighted because appending all four answer options shifts the
+    # embedding away from the core semantic/visual query signal.
+    variant_weights = _query_variant_weights(question, hints)
+
+    # For speech-heavy questions, boost BM25 — it captures exact lexical
+    # matches that dense embeddings may spread across synonyms.
+    bm25_w = 2.0 if hints.route == "speech_text" else 1.0
+
+    transcript_dense_lists = [
+        _dense_search(
+            qdrant_client=qdrant_client,
+            collection_name=collection_name,
+            query_vector=query_vector.tolist(),
+            limit=retrieval_cfg.transcript_top_k,
+            source_type="transcript_window",
+            modality="text",
+            day=hints.day,
+            participant_id=dense_participant,
+            # room is deliberately NOT a hard dense filter: ego clips/windows
+            # carry room=None (only fixed cameras set it), so filtering dense
+            # retrieval by hints.room zeroes out all ego evidence in ego scope
+            #. Room stays a soft signal via BM25 (room_hint above)
+            # and the reranker.
+            exclude_camera_ids=hints.exclude_cameras,
+        )
+        for query_vector in query_vectors
+    ]
+    # No intermediate cap here — let _collapse_hits apply the route budget
+    # after all lanes are fused. Capping early discards high-quality
+    # transcript hits before they can compete with multimodal evidence.
+    transcript_lane = reciprocal_rank_fusion(
+        [transcript_bm25, *transcript_dense_lists],
+        k=retrieval_cfg.rrf_k,
+        weights=[bm25_w, *variant_weights],
+    )
+
+    multimodal_lists: List[List[RetrievalHit]] = []
+    multimodal_weights: List[float] = []
+    multimodal_specs = [
+        ("main_event_summary", "text", retrieval_cfg.event_summary_top_k),
+        ("main_clip", "video", retrieval_cfg.video_top_k),
+        ("aux_photo", "image", retrieval_cfg.photo_top_k),
+        ("aux_video", "video", retrieval_cfg.aux_video_top_k),
+        ("aux_heartrate", "text", retrieval_cfg.heartrate_top_k),
+        ("aux_gaze", "text", retrieval_cfg.gaze_top_k),
+        ("aux_thermal", "image", retrieval_cfg.thermal_top_k),
+    ]
+    for source_type, modality, limit in multimodal_specs:
+        for qi, query_vector in enumerate(query_vectors):
+            hits = _dense_search(
+                qdrant_client=qdrant_client,
+                collection_name=collection_name,
+                query_vector=query_vector.tolist(),
+                limit=limit,
+                source_type=source_type,
+                modality=modality,
+                day=hints.day,
+                participant_id=dense_participant,
+                # room intentionally omitted as a hard filter; see transcript
+                # lane above.
+                exclude_camera_ids=hints.exclude_cameras,
+            )
+            if hits:
+                hits = _apply_score_thresholds(
+                    hits, retrieval_cfg.modality_score_thresholds
+                )
+                if hits:
+                    multimodal_lists.append(hits)
+                    multimodal_weights.append(variant_weights[qi])
+
+    # Visual-text lexical lane: BM25 over captions + OCR + scene graphs, fused
+    # as one more list in the multimodal pass. Hits share record_ids with the
+    # dense main_clip / main_event_summary lanes, so a clip whose OCR carries
+    # the answer verbatim gets both a dense and a lexical vote. Weighted per
+    # route (visual routes up, speech_text down); see visual_lane_weight.
+    if visual_index is not None:
+        visual_hits = score_visual_docs(
+            visual_index=visual_index,
+            query=question.query,
+            choices=question.answers,
+            day_hint=hints.day,
+            person_hint=hints.participant,
+            room_hint=hints.room,
+            top_k=visual_lane_top_k(retrieval_cfg),
+            # Applied inside the scorer, before top-k truncation, so rejected
+            # cameras cannot consume lane slots.
+            exclude_cameras=hints.exclude_cameras,
+        )
+        # A zero weight disables the lane for this route. Appending the list
+        # anyway would let visual-only hits enter the final fusion pass with a
+        # rank-based (positive) score and consume evidence slots.
+        weight = visual_lane_weight(hints.route, retrieval_cfg)
+        if visual_hits and weight > 0:
+            multimodal_lists.append(visual_hits)
+            multimodal_weights.append(weight)
+
+    multimodal_lane = reciprocal_rank_fusion(
+        multimodal_lists,
+        k=retrieval_cfg.rrf_k,
+        weights=multimodal_weights if multimodal_weights else None,
+    )
+
+    # Route-aware final merge: boost the lane that carries the strongest
+    # signal for this question type.
+    if hints.route == "speech_text":
+        final_weights: Optional[List[float]] = [2.0, 1.0]  # transcript dominates
+    elif hints.route == "static_visual":
+        final_weights = [1.0, 2.0]  # visual dominates
+    else:
+        final_weights = None  # equal weighting for temporal / mixed
+
+    merged = reciprocal_rank_fusion(
+        [transcript_lane, multimodal_lane],
+        k=retrieval_cfg.rrf_k,
+        weights=final_weights,
+    )
+    return _collapse_hits(merged, hints, retrieval_cfg)
+
+
+def _indexed_participant_days(bm25_index: Any) -> Set[Tuple[str, str]]:
+    """Return the ``(participant_id.lower(), day)`` pairs present in the index."""
+    return {
+        (w.participant_id.lower(), w.day)
+        for w in (getattr(bm25_index, "windows", None) or [])
+        if getattr(w, "participant_id", None)
+    }
+
+
+def _dense_participant_hint(
+    participant: Optional[str],
+    day: Optional[str],
+    indexed: Set[Tuple[str, str]],
+    known_participants: Optional[Sequence[str]] = None,
+) -> Optional[str]:
+    """Return the participant hint to filter dense lanes by, or None to skip.
+
+    ``indexed`` (from :func:`_indexed_participant_days`) is authoritative when
+    non-empty: the hint survives only if that participant has windows on
+    ``day`` (or on any day when no day was hinted). With no indexed windows to
+    go on, fall back to the static ``known_participants`` roster.
+    """
+    if participant is None:
+        return None
+    name = participant.lower()
+    if indexed:
+        if day is None:
+            return participant if any(p == name for p, _ in indexed) else None
+        return participant if (name, day) in indexed else None
+    if known_participants is None:
+        return participant
+    known = {n.lower() for n in known_participants}
+    return participant if name in known else None
+
+
+def _query_variants(question: EvalQuestion, hints: RouteHints) -> List[str]:
+    """Return query variants: bare, choices-expanded, and optionally entity-focused.
+
+    The choices-expanded variant is skipped for free-form (open) questions: there
+    the choices are blank placeholders, so embedding "Choices: A . B . C . D ."
+    only injects noise into the dense query and drags retrieval off-topic.
+    """
+    variants = [question.query]
+    if not question.is_free_form():
+        variants.append(
+            f"{question.query} Choices: "
+            f"A {question.answers['a']}. "
+            f"B {question.answers['b']}. "
+            f"C {question.answers['c']}. "
+            f"D {question.answers['d']}."
+        )
+    if hints.llm_key_entities:
+        entity_str = " ".join(hints.llm_key_entities)
+        variants.append(f"{question.query} {entity_str}")
+    return variants
+
+
+def _query_variant_weights(question: EvalQuestion, hints: RouteHints) -> List[float]:
+    """Return per-variant fusion weights matching the order from _query_variants.
+
+    Choices-expanded is down-weighted (0.7) because appending all four MCQ
+    options shifts the embedding away from the core semantic/visual query.
+    Entity-focused is slightly down-weighted (0.9) — useful but narrower than
+    the bare query.
+    """
+    weights = [1.0]  # bare query
+    if not question.is_free_form():
+        weights.append(0.7)  # choices-expanded
+    if hints.llm_key_entities:
+        weights.append(0.9)  # entity-focused
+    return weights
+
+
+def _apply_score_thresholds(
+    hits: List[RetrievalHit],
+    thresholds: Dict[str, float],
+) -> List[RetrievalHit]:
+    """Drop hits below per-modality minimum similarity scores."""
+    if not thresholds:
+        return hits
+    return [h for h in hits if h.score >= thresholds.get(h.modality, 0.0)]
+
+
+def _dense_search(
+    *,
+    qdrant_client: Any,
+    collection_name: str,
+    query_vector: List[float],
+    limit: int,
+    source_type: str,
+    modality: str,
+    day: Optional[str] = None,
+    camera_id: Optional[str] = None,
+    participant_id: Optional[str] = None,
+    room: Optional[str] = None,
+    time_range_start_ms: Optional[int] = None,
+    time_range_end_ms: Optional[int] = None,
+    has_speech: Optional[bool] = None,
+    exclude_camera_ids: Optional[Sequence[str]] = None,
+) -> List[RetrievalHit]:
+    """Run one filtered dense Qdrant search and normalize the results."""
+    query_filter = build_filter(
+        day=day,
+        camera_id=camera_id,
+        participant_id=participant_id,
+        room=room,
+        modality=modality,
+        source_type=source_type,
+        time_range_start_ms=time_range_start_ms,
+        time_range_end_ms=time_range_end_ms,
+        has_speech=has_speech,
+        exclude_camera_ids=exclude_camera_ids,
+        # A participant hint must not hard-exclude fixed room cameras (their
+        # participant_id is None but they film the participant).
+        participant_includes_fixed=True,
+    )
+    response = qdrant_client.query_points(
+        collection_name=collection_name,
+        query=query_vector,
+        query_filter=query_filter,
+        limit=limit,
+        with_payload=True,
+        with_vectors=False,
+    )
+    points = getattr(response, "points", response)
+    hits: List[RetrievalHit] = []
+    for rank, point in enumerate(points, start=1):
+        payload = dict(getattr(point, "payload", {}) or {})
+        raw = float(getattr(point, "score"))
+        hits.append(
+            RetrievalHit(
+                rank=rank,
+                score=raw,
+                raw_score=raw,
+                point_id=str(getattr(point, "id", payload.get("point_id", ""))),
+                record_id=str(payload["record_id"]),
+                source_type=str(payload["source_type"]),
+                modality=str(payload["modality"]),
+                day=payload.get("day"),
+                camera_id=payload.get("camera_id"),
+                participant_id=payload.get("participant_id"),
+                room=payload.get("room"),
+                hour=payload.get("hour"),
+                start_seconds=payload.get("start_seconds"),
+                end_seconds=payload.get("end_seconds"),
+                absolute_start=payload.get("absolute_start"),
+                absolute_end=payload.get("absolute_end"),
+                transcript_text=payload.get("transcript_text"),
+                event_summary=payload.get("event_summary"),
+                ocr_text=payload.get("ocr_text"),
+                clip_caption=payload.get("clip_caption"),
+                scene_graph_text=payload.get("scene_graph_text"),
+                asset_path=payload.get("asset_path"),
+                sampled_frame_paths=payload.get("sampled_frame_paths") or [],
+            )
+        )
+    return hits
+
+
+# Fallbacks for retrieval configs that predate the split clip / event-summary
+# budgets (e.g. the SimpleNamespace configs in tests). Keep in sync with the
+# defaults on ``alignview.config.RetrievalConfig``.
+_DEFAULT_MAX_EVENT_SUMMARIES = 4
+_DEFAULT_MIN_CLIP_HITS = 2
+
+
+def _collapse_hits(
+    hits: List[RetrievalHit],
+    hints: RouteHints,
+    retrieval_cfg: Any,
+) -> List[RetrievalHit]:
+    """Apply per-source budgets and re-rank hits according to route priority.
+
+    ``main_clip`` and ``main_event_summary`` hits have *separate* budgets
+    (``max_candidate_videos`` and ``max_event_summaries``). They used to share
+    one, which starved whichever source the route ranked second: temporal and
+    speech routes put event summaries first and so never kept a single clip
+    (no frames reached the reranker/generator), while static_visual kept only
+    clips and dropped the event summaries that carry the aggregated OCR text.
+
+    ``min_clip_hits`` additionally reserves room for the top-ranked clips on
+    every route, so the ``max_evidence_rows`` cap cannot squeeze them out
+    behind a long run of higher-priority transcript windows. The floor only
+    applies when clips were retrieved at all; it never invents rows.
+    """
+    transcript_budget = min(
+        retrieval_cfg.transcript_top_k,
+        hints.evidence_profile.transcript_budget,
+    )
+    max_candidate_videos = min(
+        retrieval_cfg.max_candidate_videos,
+        hints.evidence_profile.candidate_video_budget,
+    )
+    max_event_summaries = getattr(
+        retrieval_cfg, "max_event_summaries", _DEFAULT_MAX_EVENT_SUMMARIES
+    )
+    min_clip_hits = min(
+        getattr(retrieval_cfg, "min_clip_hits", _DEFAULT_MIN_CLIP_HITS),
+        max_candidate_videos,
+    )
+    max_aux_images = min(
+        retrieval_cfg.max_aux_images,
+        hints.evidence_profile.auxiliary_image_budget,
+    )
+    max_rows = min(
+        retrieval_cfg.max_evidence_rows,
+        hints.evidence_profile.max_evidence_rows,
+    )
+
+    # Budgets are per record, not per point: the same clip can arrive from
+    # several lanes (the dense Qdrant point and the transcript BM25 lane today;
+    # the caption/OCR lexical lane). RRF already merges
+    # these by record_id, but dedupe here too so a direct caller never
+    # double-counts.
+    ordered_hits: List[RetrievalHit] = []
+    seen_record_ids: Set[str] = set()
+    for hit in sorted(hits, key=lambda hit: (_route_priority(hints, hit), hit.rank)):
+        if hit.record_id in seen_record_ids:
+            continue
+        seen_record_ids.add(hit.record_id)
+        ordered_hits.append(hit)
+
+    # Reserve slots for the best-ranked clips. They are contiguous in
+    # ``ordered_hits`` (same route priority, sorted by rank), so they are also
+    # the first clips the walk below meets and always fit the clip budget.
+    reserved_clip_ids = {
+        hit.record_id
+        for hit in [h for h in ordered_hits if h.source_type == "main_clip"][
+            :min_clip_hits
+        ]
+    }
+    reserved_remaining = len(reserved_clip_ids)
+
+    transcript_count = 0
+    clip_count = 0
+    summary_count = 0
+    aux_image_count = 0
+    kept: List[RetrievalHit] = []
+
+    for hit in ordered_hits:
+        if len(kept) >= max_rows:
+            break
+        is_reserved = hit.record_id in reserved_clip_ids
+        if not is_reserved and len(kept) + reserved_remaining >= max_rows:
+            # Only the reserved clips may still claim the remaining rows.
+            continue
+        if hit.source_type == "transcript_window":
+            if transcript_count >= transcript_budget:
+                continue
+            transcript_count += 1
+        elif hit.source_type == "main_clip":
+            if clip_count >= max_candidate_videos:
+                continue
+            clip_count += 1
+        elif hit.source_type == "main_event_summary":
+            if summary_count >= max_event_summaries:
+                continue
+            summary_count += 1
+        elif hit.modality == "image" and hit.source_type.startswith("aux_"):
+            if aux_image_count >= max_aux_images:
+                continue
+            aux_image_count += 1
+
+        if is_reserved:
+            reserved_remaining -= 1
+        kept.append(hit)
+
+    return [
+        hit.model_copy(update={"rank": rank}) for rank, hit in enumerate(kept, start=1)
+    ]
+def _route_priority(hints: RouteHints, hit: RetrievalHit) -> int:
+    """Return a hit's sort priority from its position in the route's source list."""
+    try:
+        return hints.evidence_profile.source_priority.index(hit.source_type)
+    except ValueError:
+        return len(hints.evidence_profile.source_priority)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Count Qdrant points per camera for one day — the Bug B (#50) ingest check.
+"""Count Qdrant points per camera for one day, to check an ingest.
 
 Prints exact point counts per ``camera_type`` and per ``camera_id`` x
 ``source_type`` for the collection, then lists which of the expected fixed

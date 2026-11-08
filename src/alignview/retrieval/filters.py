@@ -1,0 +1,125 @@
+"""Qdrant payload filter builders for server-side filtering.
+
+Time overlap rule:
+  retrieve points where absolute_end >= query_start
+                    AND absolute_start <= query_end
+  Both sides must use UTC Unix-millisecond integers.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional, Sequence
+
+
+def build_filter(
+    day: Optional[str] = None,
+    camera_id: Optional[str] = None,
+    camera_type: Optional[str] = None,
+    participant_id: Optional[str] = None,
+    room: Optional[str] = None,
+    modality: Optional[str] = None,
+    source_type: Optional[str] = None,
+    time_range_start_ms: Optional[int] = None,
+    time_range_end_ms: Optional[int] = None,
+    has_speech: Optional[bool] = None,
+    exclude_camera_ids: Optional[Sequence[str]] = None,
+    participant_includes_fixed: bool = False,
+) -> Any:
+    """Return a qdrant_client Filter object for the given constraints.
+
+    Omitted parameters are not added to the filter (no restriction).
+    ``exclude_camera_ids`` adds ``must_not`` conditions so the named cameras are
+    hard-excluded from results — used by the UI refine loop to drop angles the
+    reviewer rejected.
+
+    ``participant_includes_fixed`` turns the ``participant_id`` constraint into
+    ``participant_id == X OR camera_type == "fixed"`` (a top-level ``should``).
+    Fixed room cameras carry ``participant_id=None`` but do film the named
+    participant, so a hard participant filter would silently drop every fixed
+    camera point for any question that names a person (the
+    same failure mode as a hard room filter). On an ego-only
+    index this is equivalent to the plain filter.
+    """
+    from qdrant_client.http import models as qm
+
+    conditions = []
+
+    if day is not None:
+        conditions.append(qm.FieldCondition(key="day", match=qm.MatchValue(value=day)))
+    if camera_id is not None:
+        conditions.append(
+            qm.FieldCondition(key="camera_id", match=qm.MatchValue(value=camera_id))
+        )
+    if camera_type is not None:
+        conditions.append(
+            qm.FieldCondition(key="camera_type", match=qm.MatchValue(value=camera_type))
+        )
+    should = []
+    if participant_id is not None:
+        participant_cond = qm.FieldCondition(
+            key="participant_id", match=qm.MatchValue(value=participant_id)
+        )
+        if participant_includes_fixed:
+            should = [
+                participant_cond,
+                qm.FieldCondition(
+                    key="camera_type", match=qm.MatchValue(value="fixed")
+                ),
+            ]
+        else:
+            conditions.append(participant_cond)
+    if room is not None:
+        conditions.append(
+            qm.FieldCondition(key="room", match=qm.MatchValue(value=room))
+        )
+    if modality is not None:
+        conditions.append(
+            qm.FieldCondition(key="modality", match=qm.MatchValue(value=modality))
+        )
+    if source_type is not None:
+        conditions.append(
+            qm.FieldCondition(key="source_type", match=qm.MatchValue(value=source_type))
+        )
+    if has_speech is not None:
+        conditions.append(
+            qm.FieldCondition(key="has_speech", match=qm.MatchValue(value=has_speech))
+        )
+
+    # Time overlap: absolute_end >= query_start AND absolute_start <= query_end
+    if time_range_start_ms is not None:
+        conditions.append(
+            qm.FieldCondition(
+                key="absolute_end",
+                range=qm.Range(gte=time_range_start_ms),
+            )
+        )
+    if time_range_end_ms is not None:
+        conditions.append(
+            qm.FieldCondition(
+                key="absolute_start",
+                range=qm.Range(lte=time_range_end_ms),
+            )
+        )
+
+    if (
+        time_range_start_ms is not None
+        and time_range_end_ms is not None
+        and time_range_start_ms > time_range_end_ms
+    ):
+        raise ValueError(
+            f"time_range_start_ms ({time_range_start_ms}) must be "
+            f"<= time_range_end_ms ({time_range_end_ms})"
+        )
+
+    must_not = [
+        qm.FieldCondition(key="camera_id", match=qm.MatchValue(value=cam))
+        for cam in (exclude_camera_ids or [])
+    ]
+
+    if not conditions and not must_not and not should:
+        return None
+    return qm.Filter(
+        must=conditions or None,
+        should=should or None,
+        must_not=must_not or None,
+    )

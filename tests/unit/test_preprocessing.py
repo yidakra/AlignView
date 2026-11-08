@@ -10,17 +10,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from castlerag.dataset.transcripts import load_raw_segments, merge_into_windows
-from castlerag.preprocess.event_compress import (
+from alignview.dataset.transcripts import load_raw_segments, merge_into_windows
+from alignview.preprocess.event_compress import (
     _event_summary_id,
     compress_clips_to_event,
 )
-from castlerag.preprocess.windows import (
+from alignview.preprocess.windows import (
     VideoWindow,
     iter_windows,
     mark_placeholder_windows,
 )
-from castlerag.schemas import ClipRecord, TranscriptSegment
+from alignview.schemas import ClipRecord, TranscriptSegment
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -353,7 +353,7 @@ def test_load_raw_segments_empty(tmp_path: Path):
 def test_get_video_duration_calls_ffprobe():
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="120.5\n", returncode=0)
-        from castlerag.preprocess.media import get_video_duration
+        from alignview.preprocess.media import get_video_duration
 
         dur = get_video_duration(Path("08.mp4"))
         assert dur == pytest.approx(120.5)
@@ -364,7 +364,7 @@ def test_get_video_duration_calls_ffprobe():
 def test_extract_subclip_calls_ffmpeg(tmp_path: Path):
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
-        from castlerag.preprocess.media import extract_subclip
+        from alignview.preprocess.media import extract_subclip
 
         out = extract_subclip(Path("src.mp4"), tmp_path / "out.mp4", 0.0, 30.0)
         assert out == tmp_path / "out.mp4"
@@ -387,7 +387,7 @@ def test_extract_frames_1fps_calls_ffmpeg(tmp_path: Path):
         return MagicMock(returncode=0)
 
     with patch("subprocess.run", side_effect=fake_run):
-        from castlerag.preprocess.media import extract_frames_1fps
+        from alignview.preprocess.media import extract_frames_1fps
 
         frames = extract_frames_1fps(Path("src.mp4"), tmp_path / "frames", 0.0, 30.0)
         assert len(frames) == 3
@@ -398,7 +398,7 @@ def test_is_placeholder_frame_uniform(tmp_path: Path):
     import numpy as np
     from PIL import Image
 
-    from castlerag.preprocess.media import is_placeholder_frame
+    from alignview.preprocess.media import is_placeholder_frame
 
     img = Image.fromarray(np.full((100, 100), 200, dtype=np.uint8), mode="L")
     p = tmp_path / "frame.jpg"
@@ -410,7 +410,7 @@ def test_is_placeholder_frame_real_scene(tmp_path: Path):
     import numpy as np
     from PIL import Image
 
-    from castlerag.preprocess.media import is_placeholder_frame
+    from alignview.preprocess.media import is_placeholder_frame
 
     rng = np.random.default_rng(0)
     arr = rng.integers(0, 256, (100, 100), dtype=np.uint8)
@@ -451,7 +451,7 @@ def _save_still_room(path: Path, seed: int = 0) -> Path:
 
 
 def test_is_test_card_frame_card_vs_still_room(tmp_path: Path):
-    from castlerag.preprocess.media import (
+    from alignview.preprocess.media import (
         is_placeholder_frame,
         is_test_card_frame,
     )
@@ -548,7 +548,7 @@ def test_compress_clips_aggregates_ocr():
 def test_compress_clips_calls_vllm(tmp_path: Path):
     clips = _four_clips()
     with patch(
-        "castlerag.preprocess.event_compress._vllm_chat", return_value="Summary text"
+        "alignview.preprocess.event_compress._vllm_chat", return_value="Summary text"
     ) as mock_chat:
         evt = compress_clips_to_event(
             clips, "model", vllm_base_url="http://localhost:8000/v1"
@@ -593,14 +593,14 @@ def test_compress_clips_rejects_gapped_sequence():
 
 
 def test_annotate_clip_requires_vllm_url():
-    from castlerag.preprocess.caption_ocr import annotate_clip
+    from alignview.preprocess.caption_ocr import annotate_clip
 
     with pytest.raises(ValueError, match="vllm_base_url"):
         annotate_clip("clip_1", [], None, "model", vllm_base_url=None)
 
 
 def test_annotate_clip_no_frames_returns_empty():
-    from castlerag.preprocess.caption_ocr import annotate_clip
+    from alignview.preprocess.caption_ocr import annotate_clip
 
     ann = annotate_clip(
         "clip_1", [], None, "model", vllm_base_url="http://localhost:8000/v1"
@@ -614,14 +614,14 @@ def test_annotate_clip_calls_vllm(tmp_path: Path):
     import numpy as np
     from PIL import Image
 
-    from castlerag.preprocess.caption_ocr import annotate_clip
+    from alignview.preprocess.caption_ocr import annotate_clip
 
     # create a fake frame
     p = tmp_path / "0001.jpg"
     Image.fromarray(np.zeros((10, 10), dtype=np.uint8), mode="L").save(p)
 
     with patch(
-        "castlerag.preprocess.caption_ocr._vllm_chat",
+        "alignview.preprocess.caption_ocr._vllm_chat",
         side_effect=["Caption text", "NONE", "person at counter (left)"],
     ):
         ann = annotate_clip(
@@ -637,7 +637,7 @@ def test_annotate_clip_calls_vllm(tmp_path: Path):
 
 
 def test_iter_photo_records(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_photo_records
+    from alignview.preprocess.auxiliary import iter_photo_records
 
     photo_dir = tmp_path / "photo" / "Allie"
     photo_dir.mkdir(parents=True)
@@ -652,14 +652,14 @@ def test_iter_photo_records(tmp_path: Path):
 
 
 def test_iter_photo_records_missing_dir(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_photo_records
+    from alignview.preprocess.auxiliary import iter_photo_records
 
     records = list(iter_photo_records(tmp_path, "Ghost", "day1"))
     assert records == []
 
 
 def test_iter_thermal_records(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_thermal_records
+    from alignview.preprocess.auxiliary import iter_thermal_records
 
     thermal_dir = tmp_path / "thermal"
     thermal_dir.mkdir(parents=True)
@@ -673,20 +673,20 @@ def test_iter_thermal_records(tmp_path: Path):
 
 
 def test_iter_thermal_records_missing_dir(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_thermal_records
+    from alignview.preprocess.auxiliary import iter_thermal_records
 
     records = list(iter_thermal_records(tmp_path, "day1"))
     assert records == []
 
 
 def test_iter_aux_video_short_file(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_aux_video_records
+    from alignview.preprocess.auxiliary import iter_aux_video_records
 
     video_dir = tmp_path / "video" / "Allie"
     video_dir.mkdir(parents=True)
     (video_dir / "2023-01-05_08-00-00_clip.mp4").touch()
 
-    with patch("castlerag.preprocess.auxiliary.get_video_duration", return_value=20.0):
+    with patch("alignview.preprocess.auxiliary.get_video_duration", return_value=20.0):
         records = list(iter_aux_video_records(tmp_path, "Allie", "day1"))
     assert len(records) == 1
     assert records[0].source_type == "aux_video"
@@ -694,27 +694,27 @@ def test_iter_aux_video_short_file(tmp_path: Path):
 
 
 def test_iter_aux_video_long_file_rewindowed(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_aux_video_records
+    from alignview.preprocess.auxiliary import iter_aux_video_records
 
     video_dir = tmp_path / "video" / "Allie"
     video_dir.mkdir(parents=True)
     (video_dir / "2023-01-05_08-00-00_long.mp4").touch()
 
-    with patch("castlerag.preprocess.auxiliary.get_video_duration", return_value=90.0):
+    with patch("alignview.preprocess.auxiliary.get_video_duration", return_value=90.0):
         records = list(iter_aux_video_records(tmp_path, "Allie", "day1"))
     assert len(records) == 3  # 0-30, 30-60, 60-90
     assert records[1].absolute_start - records[0].absolute_start == 30_000
 
 
 def test_iter_aux_video_skips_ffprobe_failure(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_aux_video_records
+    from alignview.preprocess.auxiliary import iter_aux_video_records
 
     video_dir = tmp_path / "video" / "Allie"
     video_dir.mkdir(parents=True)
     (video_dir / "2023-01-05_08-00-00_bad.mp4").touch()
 
     with patch(
-        "castlerag.preprocess.auxiliary.get_video_duration",
+        "alignview.preprocess.auxiliary.get_video_duration",
         side_effect=subprocess.CalledProcessError(1, "ffprobe"),
     ):
         records = list(iter_aux_video_records(tmp_path, "Allie", "day1"))
@@ -722,13 +722,13 @@ def test_iter_aux_video_skips_ffprobe_failure(tmp_path: Path):
 
 
 def test_iter_aux_video_rewindowed_unique_clip_ids(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_aux_video_records
+    from alignview.preprocess.auxiliary import iter_aux_video_records
 
     video_dir = tmp_path / "video" / "Allie"
     video_dir.mkdir(parents=True)
     (video_dir / "2023-01-05_08-00-00_long.mp4").touch()
 
-    with patch("castlerag.preprocess.auxiliary.get_video_duration", return_value=90.0):
+    with patch("alignview.preprocess.auxiliary.get_video_duration", return_value=90.0):
         records = list(iter_aux_video_records(tmp_path, "Allie", "day1"))
     clip_ids = [r.clip_id for r in records]
     assert len(clip_ids) == len(set(clip_ids)), (
@@ -737,19 +737,19 @@ def test_iter_aux_video_rewindowed_unique_clip_ids(tmp_path: Path):
 
 
 def test_iter_aux_video_skips_missing_timestamp_hint(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_aux_video_records
+    from alignview.preprocess.auxiliary import iter_aux_video_records
 
     video_dir = tmp_path / "video" / "Allie"
     video_dir.mkdir(parents=True)
     (video_dir / "clip.mp4").touch()
 
-    with patch("castlerag.preprocess.auxiliary.get_video_duration", return_value=20.0):
+    with patch("alignview.preprocess.auxiliary.get_video_duration", return_value=20.0):
         records = list(iter_aux_video_records(tmp_path, "Allie", "day1"))
     assert records == []
 
 
 def test_aux_record_ids_do_not_collide_for_same_basename(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_photo_records
+    from alignview.preprocess.auxiliary import iter_photo_records
 
     allie_dir = tmp_path / "photo" / "Allie"
     bjorn_dir = tmp_path / "photo" / "Bjorn"
@@ -758,7 +758,7 @@ def test_aux_record_ids_do_not_collide_for_same_basename(tmp_path: Path):
     (allie_dir / "IMG_0001.jpg").touch()
     (bjorn_dir / "IMG_0001.jpg").touch()
 
-    with patch("castlerag.preprocess.auxiliary._exif_unix_ms", return_value=0):
+    with patch("alignview.preprocess.auxiliary._exif_unix_ms", return_value=0):
         allie = list(iter_photo_records(tmp_path, "Allie", "day1"))
         bjorn = list(iter_photo_records(tmp_path, "Bjorn", "day1"))
 
@@ -768,14 +768,14 @@ def test_aux_record_ids_do_not_collide_for_same_basename(tmp_path: Path):
 
 
 def test_iter_photo_records_uses_filename_hint(tmp_path: Path):
-    from castlerag.preprocess.auxiliary import iter_photo_records
+    from alignview.preprocess.auxiliary import iter_photo_records
 
     photo_dir = tmp_path / "photo" / "Allie"
     photo_dir.mkdir(parents=True)
     # Filename with timestamp, no EXIF
     (photo_dir / "2023-01-05_08-00-00.jpg").touch()
 
-    with patch("castlerag.preprocess.auxiliary._exif_unix_ms", return_value=None):
+    with patch("alignview.preprocess.auxiliary._exif_unix_ms", return_value=None):
         records = list(iter_photo_records(tmp_path, "Allie", "day1"))
     assert len(records) == 1
     # Timestamp should be non-zero since it was parsed from the filename

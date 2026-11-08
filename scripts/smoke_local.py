@@ -1,4 +1,4 @@
-"""Local smoke test: 5 synthetic questions through the full CastleRAG pipeline.
+"""Local smoke test: 5 synthetic questions through the full AlignView pipeline.
 
 Usage
 -----
@@ -180,7 +180,7 @@ def _build_real_clients(
     if stub_embed:
         embed: Any = _StubEmbedClient()
     elif embed_url:
-        from castlerag.embed.omniembed import OmniEmbedClient
+        from alignview.embed.omniembed import OmniEmbedClient
         embed = OmniEmbedClient(
             model=embed_model,
             backend="vllm",
@@ -209,9 +209,9 @@ def _build_inmemory_index(
     from qdrant_client import QdrantClient
     from qdrant_client.http import models as qm
 
-    from castlerag.index.qdrant import build_point_batches, upsert_batch
-    from castlerag.index.transcript_lexical import build_bm25_index
-    from castlerag.schemas import (
+    from alignview.index.qdrant import build_point_batches, upsert_batch
+    from alignview.index.transcript_lexical import build_bm25_index
+    from alignview.schemas import (
         ClipRecord,
         EventSummaryRecord,
         TranscriptWindow,
@@ -337,15 +337,15 @@ def _build_pipeline(
     collection: str,
     gen_model: str = "stub",
 ) -> Any:
-    from castlerag.config import CastleRAGConfig
-    from castlerag.eval.run_eval import EvalPipeline
-    from castlerag.generation.answer import generate_answer
-    from castlerag.rerank.llm_reranker import rerank_candidates
-    from castlerag.retrieval.search import retrieve as _retrieve
-    from castlerag.routing.question_router import route_question
-    from castlerag.schemas import EvalQuestion, Prediction, RetrievalHit
+    from alignview.config import AlignViewConfig
+    from alignview.eval.run_eval import EvalPipeline
+    from alignview.generation.answer import generate_answer
+    from alignview.rerank.llm_reranker import rerank_candidates
+    from alignview.retrieval.search import retrieve as _retrieve
+    from alignview.routing.question_router import route_question
+    from alignview.schemas import EvalQuestion, Prediction, RetrievalHit
 
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
 
     def retrieve(question: EvalQuestion, hints: Any) -> List[RetrievalHit]:
         return _retrieve(
@@ -442,7 +442,7 @@ def main() -> None:
     out_dir = Path("outputs/smoke_local")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print("CastleRAG local smoke test")
+    print("AlignView local smoke test")
     print("=" * 50)
 
     gen_model = args.gen_model
@@ -477,7 +477,7 @@ def main() -> None:
         gen_model = "stub"
         dim = _STUB_DIM
 
-    with tempfile.TemporaryDirectory(prefix="castlerag_smoke_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="alignview_smoke_") as tmp:
         tmp_dir = Path(tmp)
         print("\nBuilding in-memory index...")
         t0 = time.perf_counter()
@@ -488,8 +488,8 @@ def main() -> None:
             embed_client, llm_client, bm25, qdrant, collection, gen_model=gen_model
         )
 
-        from castlerag.eval.run_eval import run_eval
-        from castlerag.schemas import EvalQuestion
+        from alignview.eval.run_eval import run_eval
+        from alignview.schemas import EvalQuestion
 
         questions = {
             qid: EvalQuestion(

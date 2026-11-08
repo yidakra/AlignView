@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from castlerag.routing.question_router import RouteHints, route_question
+from alignview.routing.question_router import RouteHints, route_question
 
 
 def test_route_question_temporal_extracts_structured_hints():

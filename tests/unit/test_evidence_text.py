@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from castlerag.evidence_text import truncate_text
+from alignview.evidence_text import truncate_text
 
 
 def test_truncate_text_none_and_blank_return_none():

@@ -114,7 +114,7 @@ _qdrant_mutex_release() {
 
 qdrant_lock() {
   local store="$1" mutex holder holder_user holder_job holder_host holder_time
-  QDRANT_LOCK_FILE="${store%/}/.castlerag-qdrant.lock"
+  QDRANT_LOCK_FILE="${store%/}/.alignview-qdrant.lock"
   QDRANT_LOCK_ID="${USER:-unknown} ${SLURM_JOB_ID:-nojob} $(hostname) $(date -Iseconds)"
   mkdir -p "$store" || return 1
 

@@ -6,8 +6,8 @@ import stat
 import numpy as np
 import pytest
 
-from castlerag.fsutil import current_umask, default_file_mode, share_tmp_file
-from castlerag.index.io import write_embedding_cache
+from alignview.fsutil import current_umask, default_file_mode, share_tmp_file
+from alignview.index.io import write_embedding_cache
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def test_current_umask_does_not_change_the_umask(group_umask):
 def import_umask_007(monkeypatch):
     # Off Linux the umask is captured at import; pin it so the mode tests
     # don't depend on the platform or on the umask pytest started with.
-    import castlerag.fsutil as fsutil
+    import alignview.fsutil as fsutil
 
     monkeypatch.setattr(fsutil, "_IMPORT_UMASK", 0o007)
     monkeypatch.setattr(fsutil, "current_umask", lambda: 0o007)
@@ -59,7 +59,7 @@ def test_embedding_cache_is_group_readable(tmp_path, group_umask, import_umask_0
 
 
 def test_child_shell_reports_the_umask_without_changing_it(group_umask):
-    import castlerag.fsutil as fsutil
+    import alignview.fsutil as fsutil
 
     assert fsutil._read_umask_from_child() == 0o007
     assert os.umask(0o007) == 0o007

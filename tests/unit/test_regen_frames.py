@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from castlerag.frame_encoding import sample_frames_evenly
+from alignview.frame_encoding import sample_frames_evenly
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -96,7 +96,7 @@ def test_video_root_remaps_moved_dataset(tmp_path: Path, monkeypatch):
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 def test_regen_matches_original_extraction(tmp_path: Path):
-    from castlerag.preprocess.media import extract_frames_1fps
+    from alignview.preprocess.media import extract_frames_1fps
 
     rf = _load()
     video = tmp_path / "day1" / "Allie" / "08.mp4"
@@ -127,7 +127,7 @@ def test_regen_matches_original_extraction(tmp_path: Path):
 
 
 def test_frame_extraction_retries_a_stalled_clip(tmp_path: Path, monkeypatch):
-    from castlerag.preprocess import media
+    from alignview.preprocess import media
 
     calls = []
 
@@ -147,7 +147,7 @@ def test_frame_extraction_retries_a_stalled_clip(tmp_path: Path, monkeypatch):
 
 
 def test_frame_extraction_gives_up_after_all_attempts(tmp_path: Path, monkeypatch):
-    from castlerag.preprocess import media
+    from alignview.preprocess import media
 
     calls = []
 

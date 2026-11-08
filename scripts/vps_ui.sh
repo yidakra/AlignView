@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# vps_ui.sh — single-host launcher for the CastleRAG live RAG demo on a VPS.
+# vps_ui.sh — single-host launcher for the AlignView live RAG demo on a VPS.
 #
 # Mirrors scripts/slurm/ui_live.slurm but for a 2x NVIDIA A2 (16 GB) box:
 #   - Qdrant via docker (v1.17.1, reads /home/ubuntu/storage)
 #   - OmniEmbed 8-bit on GPU 0 :8200  (scripts/omniembed_server.py)
 #   - Qwen3-VL AWQ 4-bit on GPU 1 :8201 (vllm serve)
-#   - castlerag ui on :8050 behind HTTP basic auth (CASTLERAG_UI_BASIC_AUTH)
+#   - alignview ui on :8050 behind HTTP basic auth (ALIGNVIEW_UI_BASIC_AUTH)
 #   - cloudflared quick tunnel -> :8050
 #
 # Required env (DO NOT commit values):
 #   HF_TOKEN                          gated Qwen2.5-Omni-7B base
-#   CASTLERAG_UI_BASIC_AUTH=user:pw   gates the dashboard (mandatory for public)
+#   ALIGNVIEW_UI_BASIC_AUTH=user:pw   gates the dashboard (mandatory for public)
 #
 # Non-destructive: never recreates the Qdrant collection. Aborts if points<25000.
 
@@ -126,26 +126,26 @@ wait_ready "http://localhost:${EMB_PORT}/v1/models" omniembed "${EMB_LOG}" "${EM
 wait_ready "http://localhost:${GEN_PORT}/v1/models" vllm-gen "${GEN_LOG}" "${GEN_PID}"
 
 # 4. Dashboard ----------------------------------------------------------------
-if [ -z "${CASTLERAG_UI_BASIC_AUTH:-}" ]; then
-    echo "[vps] ABORT: CASTLERAG_UI_BASIC_AUTH must be set (user:pw) before public exposure."
+if [ -z "${ALIGNVIEW_UI_BASIC_AUTH:-}" ]; then
+    echo "[vps] ABORT: ALIGNVIEW_UI_BASIC_AUTH must be set (user:pw) before public exposure."
     exit 2
 fi
 
 UI_LOG="${LOG_DIR}/ui.log"
-echo "[vps] launching castlerag ui on :${UI_PORT} (log: ${UI_LOG})"
-# CASTLERAG_UI_YOUTUBE_EMBED_HOST: swap the YouTube embed host from the privacy
+echo "[vps] launching alignview ui on :${UI_PORT} (log: ${UI_LOG})"
+# ALIGNVIEW_UI_YOUTUBE_EMBED_HOST: swap the YouTube embed host from the privacy
 # `youtube-nocookie.com` default to plain `youtube.com`.  Tunneled demos
 # (Cloudflare quick-tunnel, ngrok, etc.) often hit YouTube's "Sign in to
 # confirm you're not a bot" gate on nocookie embeds because that host is
 # cookie-blind by design — even a signed-in visitor looks anonymous to it.
 # youtube.com gives the iframe a chance to carry the YouTube cookie when the
 # browser allows third-party cookies for youtube.com.
-CASTLERAG_CONFIG="${CONF}" \
+ALIGNVIEW_CONFIG="${CONF}" \
 OMNIEMBED_BASE_URL="http://localhost:${EMB_PORT}/v1" \
 VLLM_BASE_URL="http://localhost:${GEN_PORT}/v1" \
-CASTLERAG_UI_BASIC_AUTH="${CASTLERAG_UI_BASIC_AUTH}" \
-CASTLERAG_UI_YOUTUBE_EMBED_HOST="${CASTLERAG_UI_YOUTUBE_EMBED_HOST:-https://www.youtube.com}" \
-    nohup "${VENV}/bin/castlerag" ui \
+ALIGNVIEW_UI_BASIC_AUTH="${ALIGNVIEW_UI_BASIC_AUTH}" \
+ALIGNVIEW_UI_YOUTUBE_EMBED_HOST="${ALIGNVIEW_UI_YOUTUBE_EMBED_HOST:-https://www.youtube.com}" \
+    nohup "${VENV}/bin/alignview" ui \
     --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" \
     > "${UI_LOG}" 2>&1 &
 UI_PID=$!
@@ -153,7 +153,7 @@ PIDS+=("${UI_PID}")
 
 # Readiness check sends the basic-auth credentials (every route is gated).
 for _ in $(seq 1 90); do
-    if curl -sf -u "${CASTLERAG_UI_BASIC_AUTH}" \
+    if curl -sf -u "${ALIGNVIEW_UI_BASIC_AUTH}" \
         "http://localhost:${UI_PORT}/" >/dev/null 2>&1; then
         echo "[vps] dashboard ready"
         break
@@ -183,9 +183,9 @@ done
 cat <<EOF
 
 [vps] ============================================================
-[vps]  CastleRAG live demo is up.
+[vps]  AlignView live demo is up.
 [vps]    Public URL:  ${PUBLIC_URL:-<not yet captured — see ${CF_LOG}>}
-[vps]    Basic auth:  ${CASTLERAG_UI_BASIC_AUTH%%:*} : (env CASTLERAG_UI_BASIC_AUTH)
+[vps]    Basic auth:  ${ALIGNVIEW_UI_BASIC_AUTH%%:*} : (env ALIGNVIEW_UI_BASIC_AUTH)
 [vps]    Status chip: should read "live RAG"
 [vps]
 [vps]  Foreground logs:  tail -F ${LOG_DIR}/{omniembed,vllm_gen,ui,cloudflared}.log

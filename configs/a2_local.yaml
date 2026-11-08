@@ -1,4 +1,4 @@
-# CastleRAG local configuration for a dual NVIDIA A2 (16 GB) host.
+# AlignView local configuration for a dual NVIDIA A2 (16 GB) host.
 # Deep-merges on top of configs/base.yaml — only overrides what differs.
 
 dataset:

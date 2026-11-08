@@ -11,11 +11,11 @@ from typing import Any, Dict, List
 
 import pytest
 
-from castlerag.generation.suggestions import (
+from alignview.generation.suggestions import (
     suggest_justification_text,
     suggest_refined_query_text,
 )
-from castlerag.ui.chat import PlaceholderEngine, compose_justification
+from alignview.ui.chat import PlaceholderEngine, compose_justification
 
 # --- fake OpenAI-compatible client ----------------------------------------
 
@@ -237,7 +237,7 @@ def test_placeholder_engine_suggestions_are_deterministic():
 
 
 def test_strip_parentheticals_cleans_query_text():
-    from castlerag.ui.chat import strip_parentheticals
+    from alignview.ui.chat import strip_parentheticals
 
     assert (
         strip_parentheticals("Find the guitar (camera Cathal) at noon.")
@@ -261,7 +261,7 @@ def test_refined_query_box_has_no_parentheticals():
 
 
 def test_rag_engine_falls_back_to_template_on_client_error():
-    from castlerag.ui.rag_engine import RagEngine
+    from alignview.ui.rag_engine import RagEngine
 
     eng = RagEngine(cfg=None, pipeline=None)
     eng._client = BoomClient()  # force the LLM path to raise

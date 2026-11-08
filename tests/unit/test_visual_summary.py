@@ -1,4 +1,4 @@
-"""Tests for src/castlerag/preprocess/visual_summary.py"""
+"""Tests for src/alignview/preprocess/visual_summary.py"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from castlerag.preprocess.visual_summary import generate_visual_summary
+from alignview.preprocess.visual_summary import generate_visual_summary
 
 # ---------------------------------------------------------------------------
 # generate_visual_summary — edge cases
@@ -57,7 +57,7 @@ def test_single_frame_passes_correct_content_structure(
         return "A person walks through a kitchen."
 
     monkeypatch.setattr(
-        "castlerag.preprocess.visual_summary._vllm_chat", fake_vllm_chat
+        "alignview.preprocess.visual_summary._vllm_chat", fake_vllm_chat
     )
 
     result = generate_visual_summary(
@@ -91,7 +91,7 @@ def test_transcript_text_appended_to_prompt(
         return "Summary."
 
     monkeypatch.setattr(
-        "castlerag.preprocess.visual_summary._vllm_chat", fake_vllm_chat
+        "alignview.preprocess.visual_summary._vllm_chat", fake_vllm_chat
     )
 
     generate_visual_summary(
@@ -116,7 +116,7 @@ def test_more_than_8_frames_samples_only_8(
         return "Summary."
 
     monkeypatch.setattr(
-        "castlerag.preprocess.visual_summary._vllm_chat", fake_vllm_chat
+        "alignview.preprocess.visual_summary._vllm_chat", fake_vllm_chat
     )
 
     generate_visual_summary(
@@ -143,7 +143,7 @@ def test_exactly_8_frames_all_included(
         return "Summary."
 
     monkeypatch.setattr(
-        "castlerag.preprocess.visual_summary._vllm_chat", fake_vllm_chat
+        "alignview.preprocess.visual_summary._vllm_chat", fake_vllm_chat
     )
 
     generate_visual_summary(
@@ -170,7 +170,7 @@ def test_vllm_chat_receives_correct_url_and_model(
         return "Done."
 
     monkeypatch.setattr(
-        "castlerag.preprocess.visual_summary._vllm_chat", fake_vllm_chat
+        "alignview.preprocess.visual_summary._vllm_chat", fake_vllm_chat
     )
 
     generate_visual_summary(

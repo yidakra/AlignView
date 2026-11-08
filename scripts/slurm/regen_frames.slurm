@@ -21,7 +21,7 @@ CONF="${CONF:-configs/snellius_project.yaml}"   # derived data live in /projects
 WORKERS="${WORKERS:-48}"
 mkdir -p logs
 module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 FFmpeg/7.0.2-GCCcore-13.3.0
-source "${HOME}/castlerag_venv/bin/activate"
+source "${HOME}/alignview_venv/bin/activate"
 ARGS=(--config "$CONF" --day "$DAY")
 [ -n "${VIDEO_ROOT:-}" ] && ARGS+=(--video-root "$VIDEO_ROOT")
 python scripts/regen_frames.py "${ARGS[@]}" || exit 2   # dry run: what is missing

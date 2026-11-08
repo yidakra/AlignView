@@ -1,8 +1,8 @@
-"""Tests for src/castlerag/generation/answer.py."""
+"""Tests for src/alignview/generation/answer.py."""
 
 from __future__ import annotations
 
-from castlerag.generation.answer import (
+from alignview.generation.answer import (
     _call_generation_llm,
     _fallback_answer,
     _format_citation,
@@ -17,8 +17,8 @@ from castlerag.generation.answer import (
     generate_answer,
     generate_freeform_answer,
 )
-from castlerag.routing.question_router import RouteHints
-from castlerag.schemas import EvalQuestion, RetrievalHit
+from alignview.routing.question_router import RouteHints
+from alignview.schemas import EvalQuestion, RetrievalHit
 
 
 def _make_question() -> EvalQuestion:
@@ -765,7 +765,7 @@ def test_generate_freeform_answer_plain_text_without_frames():
 
 
 def test_trim_rows_to_budget_drops_tail_rows_until_text_fits():
-    from castlerag.generation.answer import _trim_rows_to_budget, estimate_text_tokens
+    from alignview.generation.answer import _trim_rows_to_budget, estimate_text_tokens
 
     rows = [f"row{i}" for i in range(6)]
     render = lambda rs: "\n".join("x" * 400 for _ in rs)  # noqa: E731

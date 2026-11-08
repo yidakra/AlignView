@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from castlerag.config import CastleRAGConfig
-from castlerag.embed.omniembed import OmniEmbedClient, format_query_text, make_point_id
-from castlerag.index.io import (
+from alignview.config import AlignViewConfig
+from alignview.embed.omniembed import OmniEmbedClient, format_query_text, make_point_id
+from alignview.index.io import (
     load_aux_records,
     load_clip_records,
     load_embedding_cache,
@@ -18,14 +18,14 @@ from castlerag.index.io import (
     write_embedding_cache,
     write_jsonl_records,
 )
-from castlerag.index.pipeline import (
+from alignview.index.pipeline import (
     build_qdrant_index,
     cache_dense_embeddings,
     discover_chunk_artifacts,
     filter_records,
     load_chunk_records,
 )
-from castlerag.index.qdrant import (
+from alignview.index.qdrant import (
     _BOOL_INDEX_FIELDS,
     _INTEGER_INDEX_FIELDS,
     _KEYWORD_INDEX_FIELDS,
@@ -37,8 +37,8 @@ from castlerag.index.qdrant import (
     record_to_qdrant_point,
     upsert_batch,
 )
-from castlerag.index.transcript_lexical import build_bm25_index, load_bm25_index
-from castlerag.schemas import (
+from alignview.index.transcript_lexical import build_bm25_index, load_bm25_index
+from alignview.schemas import (
     AuxRecord,
     ClipRecord,
     EventSummaryRecord,
@@ -103,8 +103,8 @@ def _event_record() -> EventSummaryRecord:
     )
 
 
-def _config(tmp_path: Path) -> CastleRAGConfig:
-    return CastleRAGConfig.model_validate(
+def _config(tmp_path: Path) -> AlignViewConfig:
+    return AlignViewConfig.model_validate(
         {
             "preprocessing": {"chunks_dir": str(tmp_path / "chunks")},
             "embedding": {
@@ -560,8 +560,8 @@ def test_build_qdrant_index_upserts_all_cached_artifacts(tmp_path: Path, monkeyp
         assert isinstance(payloads, list)
         payloads.append(kwargs)
 
-    monkeypatch.setattr("castlerag.index.pipeline.bootstrap_collection", _bootstrap)
-    monkeypatch.setattr("castlerag.index.pipeline.upsert_batch", _upsert_batch)
+    monkeypatch.setattr("alignview.index.pipeline.bootstrap_collection", _bootstrap)
+    monkeypatch.setattr("alignview.index.pipeline.upsert_batch", _upsert_batch)
 
     vector_size, cache_paths = build_qdrant_index(cfg, records, recreate=True)
     assert vector_size == 2
@@ -622,11 +622,11 @@ def test_build_qdrant_index_day_filter_only_upserts_matching_day(
             return SimpleNamespace(count=0)
 
     monkeypatch.setattr(
-        "castlerag.index.pipeline.bootstrap_collection",
+        "alignview.index.pipeline.bootstrap_collection",
         lambda **kwargs: FakeQdrantClient(),
     )
     monkeypatch.setattr(
-        "castlerag.index.pipeline.upsert_batch",
+        "alignview.index.pipeline.upsert_batch",
         lambda **kwargs: captured_upserts.append(kwargs),
     )
 
@@ -796,7 +796,7 @@ def test_bootstrap_collection_returns_client():
 
     mock_client = MagicMock()
     mock_client.collection_exists.return_value = False  # fresh -> create path
-    with patch("castlerag.index.qdrant.get_client", return_value=mock_client):
+    with patch("alignview.index.qdrant.get_client", return_value=mock_client):
         result = bootstrap_collection(
             host="localhost",
             port=6333,
@@ -819,7 +819,7 @@ def test_bootstrap_collection_skips_create_when_collection_exists():
 
     mock_client = MagicMock()
     mock_client.collection_exists.return_value = True
-    with patch("castlerag.index.qdrant.get_client", return_value=mock_client):
+    with patch("alignview.index.qdrant.get_client", return_value=mock_client):
         result = bootstrap_collection(
             host="localhost",
             port=6333,
@@ -837,7 +837,7 @@ def test_bootstrap_collection_recreate_drops_and_creates():
 
     mock_client = MagicMock()
     mock_client.collection_exists.return_value = True
-    with patch("castlerag.index.qdrant.get_client", return_value=mock_client):
+    with patch("alignview.index.qdrant.get_client", return_value=mock_client):
         bootstrap_collection(
             host="localhost",
             port=6333,

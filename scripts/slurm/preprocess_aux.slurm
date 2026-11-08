@@ -20,7 +20,7 @@
 set -euo pipefail
 
 CONFIG="${CONFIG:-configs/snellius.yaml}"
-VENV="${VENV:-${HOME}/castlerag_venv}"
+VENV="${VENV:-${HOME}/alignview_venv}"
 
 echo "[preprocess_aux]  host=$(hostname)  start=$(date -Iseconds)"
 
@@ -28,6 +28,6 @@ module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12
 
 source "${VENV}/bin/activate"
 
-castlerag preprocess --aux --config "${CONFIG}"
+alignview preprocess --aux --config "${CONFIG}"
 
 echo "[preprocess_aux] done  end=$(date -Iseconds)"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from castlerag.eval.wandb_logger import _stringify_keys
+from alignview.eval.wandb_logger import _stringify_keys
 
 
 def test_stringify_keys_coerces_int_keys():

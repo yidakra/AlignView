@@ -1,4 +1,4 @@
-"""Tests for src/castlerag/eval/io.py"""
+"""Tests for src/alignview/eval/io.py"""
 
 import importlib
 import json
@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from castlerag.config import CastleRAGConfig
-from castlerag.eval.io import (
+from alignview.config import AlignViewConfig
+from alignview.eval.io import (
     accuracy_breakdown,
     compute_accuracy,
     compute_diversity_metrics,
@@ -20,15 +20,15 @@ from castlerag.eval.io import (
     write_evidence_traces,
     write_predictions,
 )
-from castlerag.eval.run_eval import (
+from alignview.eval.run_eval import (
     EvalPipeline,
     PipelineDependencyError,
     run_eval,
     run_question,
 )
-from castlerag.retrieval.candidate_expand import expand_candidates
-from castlerag.routing.question_router import RouteHints
-from castlerag.schemas import (
+from alignview.retrieval.candidate_expand import expand_candidates
+from alignview.routing.question_router import RouteHints
+from alignview.schemas import (
     EvalQuestion,
     EvidencePack,
     Prediction,
@@ -36,7 +36,7 @@ from castlerag.schemas import (
     RetrievalHit,
 )
 
-run_eval_module = importlib.import_module("castlerag.eval.run_eval")
+run_eval_module = importlib.import_module("alignview.eval.run_eval")
 
 
 def _write_questions(tmp_path: Path, data: dict) -> Path:
@@ -153,7 +153,7 @@ def test_accuracy_breakdown_returns_graded_denominator(tmp_path: Path):
 
 def test_load_questions_csv_disambiguates_id_collision(tmp_path: Path):
     """Distinct questions that collide on question_id must both survive."""
-    import castlerag.eval.io as io_mod
+    import alignview.eval.io as io_mod
 
     # Force two different questions to hash to the same base id.
     def _fixed_id(text: str) -> str:
@@ -521,7 +521,7 @@ def test_run_eval_default_pipeline_reports_missing_local_index_artifacts(
 ):
     q_path = _write_questions(tmp_path, {"q1": _QUESTIONS_RAW["q1"]})
     qs = load_questions(q_path)
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     cfg.embedding.cache_dir = str(tmp_path / "embeddings")
     cfg.preprocessing.chunks_dir = str(tmp_path / "chunks")
 
@@ -540,7 +540,7 @@ def test_run_eval_default_pipeline_reports_empty_qdrant_collection(
 ):
     q_path = _write_questions(tmp_path, {"q1": _QUESTIONS_RAW["q1"]})
     qs = load_questions(q_path)
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     emb_dir = tmp_path / "embeddings"
     emb_dir.mkdir()
     (emb_dir / "transcripts.pkl").write_bytes(b"placeholder")
@@ -576,7 +576,7 @@ def test_run_eval_default_pipeline_reports_missing_vllm_base_url(
 ):
     q_path = _write_questions(tmp_path, {"q1": _QUESTIONS_RAW["q1"]})
     qs = load_questions(q_path)
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     emb_dir = tmp_path / "embeddings"
     emb_dir.mkdir()
     (emb_dir / "transcripts.pkl").write_bytes(b"placeholder")
@@ -613,7 +613,7 @@ def test_run_eval_default_pipeline_wraps_corrupt_bm25_index(
 ):
     q_path = _write_questions(tmp_path, {"q1": _QUESTIONS_RAW["q1"]})
     qs = load_questions(q_path)
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     emb_dir = tmp_path / "embeddings"
     emb_dir.mkdir()
     (emb_dir / "transcripts.pkl").write_bytes(b"placeholder")
@@ -783,10 +783,10 @@ def test_load_questions_csv_accuracy_with_wrong_predictions(tmp_path: Path):
 
 def test_wandb_logger_noop_when_not_installed(monkeypatch):
     """WandbLogger must be a silent no-op when wandb is absent."""
-    import castlerag.eval.wandb_logger as wl
+    import alignview.eval.wandb_logger as wl
     monkeypatch.setattr(wl, "_wandb", lambda: None)
-    from castlerag.config import CastleRAGConfig
-    cfg = CastleRAGConfig()
+    from alignview.config import AlignViewConfig
+    cfg = AlignViewConfig()
     logger = wl.WandbLogger(cfg, n_questions=5)
     assert not logger._active
     # All methods must be callable without error when inactive

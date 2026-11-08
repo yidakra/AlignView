@@ -1,4 +1,4 @@
-"""Opt-in user-study interaction log (CASTLERAG_STUDY_LOG)."""
+"""Opt-in user-study interaction log (ALIGNVIEW_STUDY_LOG)."""
 
 import json
 import re
@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from castlerag.ui.study_log import (
+from alignview.ui.study_log import (
     ENV_VAR,
     SESSION_CODE_ALPHABET,
     SESSION_CODE_LENGTH,
@@ -128,8 +128,8 @@ def test_concurrent_writes_do_not_interleave(tmp_path):
 
 
 def test_layout_has_no_session_code_unless_study():
-    from castlerag.ui.layout import build_layout
-    from castlerag.ui.youtube import YouTubeMirror
+    from alignview.ui.layout import build_layout
+    from alignview.ui.youtube import YouTubeMirror
 
     mirror = YouTubeMirror.from_csv()
     off = _ids(build_layout(mirror))
@@ -149,7 +149,7 @@ def _callback(app, name):
 def test_build_app_without_env_registers_no_study_callback(monkeypatch):
     pytest.importorskip("dash")
     monkeypatch.delenv(ENV_VAR, raising=False)
-    from castlerag.ui.app import build_app
+    from alignview.ui.app import build_app
 
     app = build_app()
     assert "session-code" not in _ids(app.layout)
@@ -160,7 +160,7 @@ def test_page_load_and_ask_callbacks_log_events(monkeypatch, tmp_path):
     pytest.importorskip("dash")
     path = tmp_path / "study.jsonl"
     monkeypatch.setenv(ENV_VAR, str(path))
-    from castlerag.ui.app import build_app
+    from alignview.ui.app import build_app
 
     app = build_app()
 

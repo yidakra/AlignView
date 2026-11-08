@@ -15,19 +15,19 @@ QFILE="data/smoke_day1.csv"   # 40 day-1 questions with ground truth
 
 export HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 VLLM_LOGGING_LEVEL=WARNING
 module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12.6.0 FFmpeg/7.0.2-GCCcore-13.3.0
-source "${HOME}/castlerag_venv/bin/activate"
+source "${HOME}/alignview_venv/bin/activate"
 cd "${SLURM_SUBMIT_DIR}"
 # Values exported at submission (sbatch --export) win over the config.
 _SUBMIT_QDRANT_BIN="${QDRANT_BIN:-}"
 _SUBMIT_QDRANT_STORAGE="${QDRANT_STORAGE:-}"
-PATHS="$(castlerag paths --config "${CONF}")" || { echo "ABORT: castlerag paths failed for ${CONF}"; exit 1; }
+PATHS="$(alignview paths --config "${CONF}")" || { echo "ABORT: alignview paths failed for ${CONF}"; exit 1; }
 eval "${PATHS}"
 QSTORE="${_SUBMIT_QDRANT_STORAGE:-${QDRANT_STORAGE:-${SC}/qdrant_storage}}"
 QDRANT_BIN="${_SUBMIT_QDRANT_BIN:-${QDRANT_BIN:-${HOME}/qdrant/qdrant}}"   # submit > config qdrant.binary > own copy
 [ -x "${QDRANT_BIN}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN} (set qdrant.binary in ${CONF})"; exit 1; }
-# Model cache: CASTLERAG_HF_HOME > config slurm.hf_home > scratch. HF_HOME itself is
+# Model cache: ALIGNVIEW_HF_HOME > config slurm.hf_home > scratch. HF_HOME itself is
 # not honoured from the environment, since login shells often set it elsewhere.
-export HF_HOME="${CASTLERAG_HF_HOME:-${HF_HOME_DIR:-${SC}/hf_cache}}"
+export HF_HOME="${ALIGNVIEW_HF_HOME:-${HF_HOME_DIR:-${SC}/hf_cache}}"
 [ -d "${HF_HOME}/hub" ] || { echo "ABORT: no model cache at ${HF_HOME}/hub (jobs run offline; set slurm.hf_home in ${CONF})"; exit 1; }
 # One Qdrant per storage folder: take the lock before any server starts, so a
 # refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
@@ -98,8 +98,8 @@ mkdir -p "${OUTDIR}"
 # per-question table, diversity, and the guess/supported split; sync it afterward
 # from a login node (which does have internet) with the command echoed below.
 export WANDB_MODE=offline WANDB_DIR="${OUTDIR}"
-castlerag answer "${QFILE}" --config "${CONF}" --out "${OUTDIR}/predictions.json" --wandb
-castlerag eval "${QFILE}" "${OUTDIR}/predictions.json" --config "${CONF}"
+alignview answer "${QFILE}" --config "${CONF}" --out "${OUTDIR}/predictions.json" --wandb
+alignview eval "${QFILE}" "${OUTDIR}/predictions.json" --config "${CONF}"
 echo "[eval] DONE — predictions at ${OUTDIR}/predictions.json"
 echo "[eval] W&B run recorded offline. Sync from a login node with:"
 echo "        wandb sync ${OUTDIR}/wandb/latest-run"

@@ -1,4 +1,4 @@
-"""Tests for src/castlerag/cli.py"""
+"""Tests for src/alignview/cli.py"""
 
 import json
 from pathlib import Path
@@ -6,13 +6,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from castlerag.cli import app
-from castlerag.eval.run_eval import (
+from alignview.cli import app
+from alignview.eval.run_eval import (
     EvalOutputPaths,
     EvalRunResult,
     PipelineDependencyError,
 )
-from castlerag.schemas import Prediction
+from alignview.schemas import Prediction
 
 runner = CliRunner()
 
@@ -20,7 +20,7 @@ runner = CliRunner()
 def test_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "castlerag" in result.output.lower()
+    assert "alignview" in result.output.lower()
 
 
 def test_preprocess_dry_run():
@@ -92,7 +92,7 @@ def test_answer_runs_eval_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPat
             ),
         )
 
-    monkeypatch.setattr("castlerag.cli.run_eval", _fake_run_eval)
+    monkeypatch.setattr("alignview.cli.run_eval", _fake_run_eval)
     result = runner.invoke(app, ["answer", str(q_file), "--out", str(out_path)])
     assert result.exit_code == 0
     assert "predicted : 1 questions" in result.output
@@ -166,7 +166,7 @@ def test_smoke_test_runs_first_five_questions(
             ),
         )
 
-    monkeypatch.setattr("castlerag.cli.run_eval", _fake_run_eval)
+    monkeypatch.setattr("alignview.cli.run_eval", _fake_run_eval)
     result = runner.invoke(app, ["smoke-test", str(q_file)])
     assert result.exit_code == 0
     assert "predicted : 5 questions" in result.output
@@ -191,7 +191,7 @@ def test_smoke_test_surfaces_pipeline_dependency_errors(
     def _fake_run_eval(questions, **kwargs):
         raise PipelineDependencyError("generation is not implemented for question q1")
 
-    monkeypatch.setattr("castlerag.cli.run_eval", _fake_run_eval)
+    monkeypatch.setattr("alignview.cli.run_eval", _fake_run_eval)
     result = runner.invoke(app, ["smoke-test", str(q_file)])
     assert result.exit_code == 1
     assert "generation is not implemented for question q1" in result.output

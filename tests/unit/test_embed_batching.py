@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from castlerag.embed.batching import plan_batches
+from alignview.embed.batching import plan_batches
 
 
 def _check(lengths, max_batch, budget):

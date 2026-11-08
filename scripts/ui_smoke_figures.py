@@ -1,6 +1,6 @@
 """Live-UI smoke test for the new evidence figures (heatmap + funnel).
 
-Drives a real browser through one ask cycle on the running CastleRAG UI and
+Drives a real browser through one ask cycle on the running AlignView UI and
 asserts that two recent figures actually render in the DOM:
 
 * the cross-camera agreement heatmap inside ``#evidence-figure``
@@ -19,11 +19,11 @@ Usage
     .venv/bin/python -m playwright install chromium
 
 # Run against a live UI:
-    CASTLERAG_UI_BASIC_AUTH=demo:<pw> python scripts/ui_smoke_figures.py
+    ALIGNVIEW_UI_BASIC_AUTH=demo:<pw> python scripts/ui_smoke_figures.py
 
 Environment
 -----------
-CASTLERAG_UI_BASIC_AUTH   required, ``user:password`` for HTTP basic auth
+ALIGNVIEW_UI_BASIC_AUTH   required, ``user:password`` for HTTP basic auth
 UI_URL                    optional, defaults to ``http://localhost:8050/``
 UI_SMOKE_OUT_DIR          optional, screenshot directory (default outputs/ui_smoke)
 
@@ -52,10 +52,10 @@ def log(msg: str) -> None:
 
 def main() -> int:
     try:
-        auth = os.environ["CASTLERAG_UI_BASIC_AUTH"]
+        auth = os.environ["ALIGNVIEW_UI_BASIC_AUTH"]
     except KeyError:
         sys.stderr.write(
-            "ERROR: CASTLERAG_UI_BASIC_AUTH not set (expected user:password)\n"
+            "ERROR: ALIGNVIEW_UI_BASIC_AUTH not set (expected user:password)\n"
         )
         return 2
     user, _, password = auth.partition(":")

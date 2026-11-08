@@ -28,7 +28,7 @@
 set -euo pipefail
 
 CONFIG="${CONFIG:-configs/snellius.yaml}"
-VENV="${VENV:-${HOME}/castlerag_venv}"
+VENV="${VENV:-${HOME}/alignview_venv}"
 CREATE_COLLECTION="${CREATE_COLLECTION:-}"  # pass --create-collection to recreate
 
 echo "[index_qdrant]  host=$(hostname)  start=$(date -Iseconds)"
@@ -64,7 +64,7 @@ echo "[index_qdrant] qdrant ready"
 
 # --day "${CASTLE_DAY}" matches the day-suffixed embed caches (*_dayN.npz) so the
 # cache short-circuit skips re-embedding — no vLLM embed server needed here.
-castlerag index \
+alignview index \
     --config "${CONFIG}" \
     ${CASTLE_DAY:+--day "${CASTLE_DAY}"} \
     ${CREATE_COLLECTION:+--create-collection}
