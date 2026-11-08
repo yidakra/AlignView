@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from castlerag.rerank.llm_reranker import (
+from alignview.rerank.llm_reranker import (
     _aggregate_support_priors,
     _coerce_pack,
     _flatten_evidence_rows,
@@ -20,9 +20,9 @@ from castlerag.rerank.llm_reranker import (
     parse_reranker_response,
     rerank_candidates,
 )
-from castlerag.retrieval.candidate_expand import expand_candidates
-from castlerag.routing.question_router import RouteHints
-from castlerag.schemas import (
+from alignview.retrieval.candidate_expand import expand_candidates
+from alignview.routing.question_router import RouteHints
+from alignview.schemas import (
     EvalQuestion,
     EvidencePack,
     RerankedEvidencePack,
@@ -292,7 +292,7 @@ def test_rerank_candidates_zeroes_support_for_pruned_fallback(caplog):
 
 
 # ---------------------------------------------------------------------------
-# keep / relevance gate (issue #50): keep=false must not discard a pack the
+# keep / relevance gate: keep=false must not discard a pack the
 # model itself rated relevant.
 # ---------------------------------------------------------------------------
 
@@ -377,7 +377,7 @@ def test_rerank_min_relevance_still_prunes_regardless_of_keep():
 
 
 def test_build_content_samples_frames_evenly(monkeypatch):
-    from castlerag.rerank import llm_reranker
+    from alignview.rerank import llm_reranker
 
     seen: list[str] = []
 
@@ -394,7 +394,7 @@ def test_build_content_samples_frames_evenly(monkeypatch):
 
 
 def test_build_content_short_frame_list_unchanged(monkeypatch):
-    from castlerag.rerank import llm_reranker
+    from alignview.rerank import llm_reranker
 
     seen: list[str] = []
 
@@ -408,7 +408,7 @@ def test_build_content_short_frame_list_unchanged(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# format_candidate_pack — clip captions reach the reranker (issue #50)
+# format_candidate_pack — clip captions reach the reranker
 # ---------------------------------------------------------------------------
 
 

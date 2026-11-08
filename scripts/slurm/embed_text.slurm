@@ -2,7 +2,7 @@
 # embed_text.slurm
 # OmniEmbed encoding for event-summary text points and auxiliary text records.
 # Transcript dense text embeddings run through index_transcripts.slurm.
-# Batch size: 64 (event summaries), 128 (transcript windows) — see SPEC §3.2.
+# Batch size: 64 (event summaries), 128 (transcript windows)
 # Array: one job per day.
 #
 # Usage:
@@ -25,7 +25,7 @@ set -euo pipefail
 
 DAY="${SLURM_ARRAY_TASK_ID}"
 CONFIG="${CONFIG:-configs/snellius.yaml}"
-VENV="${VENV:-${HOME}/castlerag_venv}"
+VENV="${VENV:-${HOME}/alignview_venv}"
 
 echo "[embed_text] day=${DAY}  host=$(hostname)  start=$(date -Iseconds)"
 
@@ -33,12 +33,12 @@ module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12
 
 source "${VENV}/bin/activate"
 
-castlerag embed \
+alignview embed \
     --config "${CONFIG}" \
     --modality event_summary \
     --day "${DAY}"
 
-castlerag embed \
+alignview embed \
     --config "${CONFIG}" \
     --modality text \
     --day "${DAY}"

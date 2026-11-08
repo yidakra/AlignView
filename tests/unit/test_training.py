@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from castlerag.training.lora_mcqa import (
+from alignview.training.lora_mcqa import (
     LoRABlockedError,
     LoRASplitPaths,
     check_lora_prerequisites,

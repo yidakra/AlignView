@@ -1,8 +1,8 @@
 #!/bin/bash
-# ui_live.slurm — serve the CastleRAG dashboard wired to the REAL RAG pipeline.
+# ui_live.slurm — serve the AlignView dashboard wired to the REAL RAG pipeline.
 #
 # Boots OmniEmbed (embeddings, :8200), Qwen3-VL (rerank+generation, :8201) and
-# Qdrant against the EXISTING persisted index, then launches `castlerag ui` with
+# Qdrant against the EXISTING persisted index, then launches `alignview ui` with
 # the live RagEngine.  Non-destructive: it never preprocesses / embeds / indexes
 # / creates collections, and aborts if the collection looks emptied.
 #
@@ -11,7 +11,7 @@
 #
 #   sbatch --account=gisr109364 scripts/slurm/ui_live.slurm
 #   # then, from your laptop (NODE printed in logs/castle-ui-live_<jobid>.out):
-#   ssh -L 8050:<NODE>:8050 scur0225@snellius.surf.nl
+#   ssh -L 8050:<NODE>:8050 <user>@snellius.surf.nl
 #   # open http://localhost:8050  (top-bar chip should read "live RAG")
 
 #SBATCH --job-name=castle-ui-live
@@ -36,20 +36,20 @@ UI_PORT="${UI_PORT:-8050}"
 # Trim the basic-auth credentials the same way the UI does, so whitespace-only
 # credentials count as unset (the UI would install no auth gate for them) and
 # the readiness probe sends exactly what the UI checks.
-CASTLERAG_UI_BASIC_AUTH="$(printf '%s' "${CASTLERAG_UI_BASIC_AUTH:-}" \
+ALIGNVIEW_UI_BASIC_AUTH="$(printf '%s' "${ALIGNVIEW_UI_BASIC_AUTH:-}" \
     | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-export CASTLERAG_UI_BASIC_AUTH
+export ALIGNVIEW_UI_BASIC_AUTH
 
 # Check the credentials before any GPU service starts. A public tunnel needs
 # them, and the UI refuses a value without a non-empty user and password.
-_auth="${CASTLERAG_UI_BASIC_AUTH}"
+_auth="${ALIGNVIEW_UI_BASIC_AUTH}"
 if [ -z "${_auth}" ]; then
     if [ -n "${NGROK_DOMAIN:-}" ] || [ "${PUBLIC_TUNNEL:-0}" = "1" ]; then
-        echo "[ui] ABORT: a public tunnel needs CASTLERAG_UI_BASIC_AUTH=user:password."
+        echo "[ui] ABORT: a public tunnel needs ALIGNVIEW_UI_BASIC_AUTH=user:password."
         exit 2
     fi
 elif [[ "${_auth}" != *:* ]] || [ -z "${_auth%%:*}" ] || [ -z "${_auth#*:}" ]; then
-    echo "[ui] ABORT: CASTLERAG_UI_BASIC_AUTH must be user:password with both parts non-empty."
+    echo "[ui] ABORT: ALIGNVIEW_UI_BASIC_AUTH must be user:password with both parts non-empty."
     exit 2
 fi
 unset _auth
@@ -65,19 +65,19 @@ export HF_HUB_DISABLE_TELEMETRY=1
 export VLLM_LOGGING_LEVEL=WARNING
 
 module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12.6.0 FFmpeg/7.0.2-GCCcore-13.3.0
-source "${HOME}/castlerag_venv/bin/activate"
+source "${HOME}/alignview_venv/bin/activate"
 cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 # Values exported at submission (sbatch --export) win over the config.
 _SUBMIT_QDRANT_BIN="${QDRANT_BIN:-}"
 _SUBMIT_QDRANT_STORAGE="${QDRANT_STORAGE:-}"
-PATHS="$(castlerag paths --config "${CONF}")" || { echo "ABORT: castlerag paths failed for ${CONF}"; exit 1; }
+PATHS="$(alignview paths --config "${CONF}")" || { echo "ABORT: alignview paths failed for ${CONF}"; exit 1; }
 eval "${PATHS}"
 QSTORE="${_SUBMIT_QDRANT_STORAGE:-${QDRANT_STORAGE:-${SC}/qdrant_storage}}"
 QDRANT_BIN="${_SUBMIT_QDRANT_BIN:-${QDRANT_BIN:-${HOME}/qdrant/qdrant}}"   # submit > config qdrant.binary > own copy
 [ -x "${QDRANT_BIN}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN} (set qdrant.binary in ${CONF})"; exit 1; }
-# Model cache: CASTLERAG_HF_HOME > config slurm.hf_home > scratch. HF_HOME itself is
+# Model cache: ALIGNVIEW_HF_HOME > config slurm.hf_home > scratch. HF_HOME itself is
 # not honoured from the environment, since login shells often set it elsewhere.
-export HF_HOME="${CASTLERAG_HF_HOME:-${HF_HOME_DIR:-${SC}/hf_cache}}"
+export HF_HOME="${ALIGNVIEW_HF_HOME:-${HF_HOME_DIR:-${SC}/hf_cache}}"
 [ -d "${HF_HOME}/hub" ] || { echo "ABORT: no model cache at ${HF_HOME}/hub (jobs run offline; set slurm.hf_home in ${CONF})"; exit 1; }
 # One Qdrant per storage folder: take the lock before any server starts, so a
 # refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
@@ -136,14 +136,14 @@ if [ "${PTS}" -lt 25000 ]; then
 fi
 
 # --- live engine wiring: embeddings -> :8200, rerank/generation -> :8201 ---
-export CASTLERAG_CONFIG="${CONF}"                      # host paths (cache_dir, frames, collection)
+export ALIGNVIEW_CONFIG="${CONF}"                      # host paths (cache_dir, frames, collection)
 export OMNIEMBED_BASE_URL="http://localhost:8200/v1"   # OmniEmbed query embeddings
 export VLLM_BASE_URL="http://localhost:8201/v1"        # Qwen3-VL rerank + generation
 # NOTE: OMNIEMBED_QUERY_CACHE intentionally UNSET so arbitrary UI queries embed live.
-# CASTLERAG_STUDY_LOG (opt-in, pass via --export) turns on the user-study
+# ALIGNVIEW_STUDY_LOG (opt-in, pass via --export) turns on the user-study
 # interaction log; left unset, nothing is logged. See docs/demo.md.
-if [ -n "${CASTLERAG_STUDY_LOG:-}" ]; then
-    echo "[ui] study interaction log -> ${CASTLERAG_STUDY_LOG}"
+if [ -n "${ALIGNVIEW_STUDY_LOG:-}" ]; then
+    echo "[ui] study interaction log -> ${ALIGNVIEW_STUDY_LOG}"
 fi
 
 # wait_ui_ready: poll the dashboard until it answers (with the basic-auth
@@ -152,7 +152,7 @@ fi
 wait_ui_ready() {
     local deadline=$((SECONDS + 180))
     local auth=()
-    if [ -n "${CASTLERAG_UI_BASIC_AUTH}" ]; then auth=(-u "${CASTLERAG_UI_BASIC_AUTH}"); fi
+    if [ -n "${ALIGNVIEW_UI_BASIC_AUTH}" ]; then auth=(-u "${ALIGNVIEW_UI_BASIC_AUTH}"); fi
     while [ "${SECONDS}" -lt "${deadline}" ]; do
         if curl -sf --connect-timeout 2 --max-time 5 ${auth[@]+"${auth[@]}"} \
                 "http://localhost:${UI_PORT}/" >/dev/null 2>&1; then
@@ -170,7 +170,7 @@ NODE="$(hostname)"
 cat <<EOF
 
 [ui] ============================================================
-[ui]  CastleRAG live UI is starting on ${NODE}:${UI_PORT}
+[ui]  AlignView live UI is starting on ${NODE}:${UI_PORT}
 [ui]  From your LAPTOP, open a tunnel, then browse http://localhost:${UI_PORT}
 [ui]
 [ui]    ssh -L ${UI_PORT}:${NODE}:${UI_PORT} ${USER}@snellius.surf.nl
@@ -197,7 +197,7 @@ if [ -n "${NAMED_TUNNEL_TOKEN:-}" ]; then
         echo "[ui] ABORT: cloudflared not found/executable at ${CFBIN} (set CLOUDFLARED=...)."
         exit 2
     fi
-    castlerag ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" &
+    alignview ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" &
     UI_PID=$!
     trap 'kill $EMB_PID $GEN_PID $QPID $UI_PID ${CF_PID:-} 2>/dev/null; qdrant_unlock' EXIT
     wait_ui_ready || exit 1
@@ -229,8 +229,8 @@ fi
 # The authtoken comes from the agent's own config (`~/ngrok config add-authtoken`)
 # or NGROK_AUTHTOKEN; it is never passed on the command line.
 if [ -n "${NGROK_DOMAIN:-}" ]; then
-    if [ -z "${CASTLERAG_UI_BASIC_AUTH:-}" ]; then
-        echo "[ui] ABORT: NGROK_DOMAIN needs CASTLERAG_UI_BASIC_AUTH=user:pass"
+    if [ -z "${ALIGNVIEW_UI_BASIC_AUTH:-}" ]; then
+        echo "[ui] ABORT: NGROK_DOMAIN needs ALIGNVIEW_UI_BASIC_AUTH=user:pass"
         echo "[ui]        (refusing to expose the live backend with no auth)."
         exit 2
     fi
@@ -239,7 +239,7 @@ if [ -n "${NGROK_DOMAIN:-}" ]; then
         echo "[ui] ABORT: ngrok not found/executable at ${NGBIN} (set NGROK=...)."
         exit 2
     fi
-    castlerag ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" &
+    alignview ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" &
     UI_PID=$!
     trap 'kill $EMB_PID $GEN_PID $QPID $UI_PID ${NG_PID:-} 2>/dev/null; qdrant_unlock' EXIT
     wait_ui_ready || exit 1
@@ -260,7 +260,7 @@ if [ -n "${NGROK_DOMAIN:-}" ]; then
 
 [ui] ============================================================
 [ui]  PUBLIC DEMO URL : https://${NGROK_DOMAIN#https://}
-[ui]  basic-auth user : ${CASTLERAG_UI_BASIC_AUTH%%:*}  (share the password out-of-band)
+[ui]  basic-auth user : ${ALIGNVIEW_UI_BASIC_AUTH%%:*}  (share the password out-of-band)
 [ui]  Same URL every run. scancel ${SLURM_JOB_ID} to tear it down.
 [ui]  Free plan: first visit shows ngrok's one-time warning page; click "Visit Site".
 [ui] ============================================================
@@ -278,15 +278,15 @@ EOF
 fi
 
 # --- quick tunnel (ephemeral URL) + basic auth, or default SSH-tunnel serve ---
-# PUBLIC_TUNNEL=1 requires CASTLERAG_UI_BASIC_AUTH=user:pass — the app gates
+# PUBLIC_TUNNEL=1 requires ALIGNVIEW_UI_BASIC_AUTH=user:pass — the app gates
 # every request, so the live GPU backend isn't open to anyone with the link.
 if [ "${PUBLIC_TUNNEL:-0}" != "1" ]; then
-    exec castlerag ui --host 0.0.0.0 --port "${UI_PORT}" \
+    exec alignview ui --host 0.0.0.0 --port "${UI_PORT}" \
         --require-live --config "${CONF}"
 fi
 
-if [ -z "${CASTLERAG_UI_BASIC_AUTH:-}" ]; then
-    echo "[ui] ABORT: PUBLIC_TUNNEL=1 needs CASTLERAG_UI_BASIC_AUTH=user:pass"
+if [ -z "${ALIGNVIEW_UI_BASIC_AUTH:-}" ]; then
+    echo "[ui] ABORT: PUBLIC_TUNNEL=1 needs ALIGNVIEW_UI_BASIC_AUTH=user:pass"
     echo "[ui]        (refusing to expose the live backend with no auth)."
     exit 2
 fi
@@ -297,7 +297,7 @@ if [ ! -x "${CFBIN}" ]; then
 fi
 
 # UI in the background so cloudflared can run alongside it.
-castlerag ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" &
+alignview ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" &
 UI_PID=$!
 trap 'kill $EMB_PID $GEN_PID $QPID $UI_PID ${CF_PID:-} 2>/dev/null; qdrant_unlock' EXIT
 
@@ -321,7 +321,7 @@ cat <<EOF
 
 [ui] ============================================================
 [ui]  PUBLIC DEMO URL : ${PUBURL:-<not ready yet — see ${CF_LOG}>}
-[ui]  basic-auth user : ${CASTLERAG_UI_BASIC_AUTH%%:*}  (share the password out-of-band)
+[ui]  basic-auth user : ${ALIGNVIEW_UI_BASIC_AUTH%%:*}  (share the password out-of-band)
 [ui]  Public for the life of this job — scancel ${SLURM_JOB_ID} to tear it down.
 [ui]  Quick tunnels have no uptime guarantee and the URL changes each run.
 [ui] ============================================================

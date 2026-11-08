@@ -1,4 +1,4 @@
-# CastleRAG base configuration (local dev / CPU-only preview)
+# AlignView base configuration (local dev / CPU-only preview)
 # All paths are relative to the repo root unless absolute.
 
 dataset:
@@ -74,7 +74,7 @@ retrieval:
   # summaries are budgeted separately: sharing one budget meant temporal and
   # speech routes (event summaries ranked first) kept zero clips, so no frames
   # ever reached the reranker/generator, while static_visual kept zero event
-  # summaries and lost the aggregated OCR text they carry (issue #50).
+  # summaries and lost the aggregated OCR text they carry.
   max_candidate_videos: 4    # main_clip rows kept
   max_event_summaries: 4     # main_event_summary rows kept
   # Rows reserved for the top-ranked clips on every route so the
@@ -85,7 +85,7 @@ retrieval:
   max_aux_images: 16
   max_evidence_rows: 50  # TAHAKOM-validated working-memory cap
   # Visual-text lexical lane: BM25 over clip captions + OCR + scene graphs
-  # (visual_text.json, built by `castlerag index`). top_k is the lane size;
+  # (visual_text.json, built by `alignview index`). top_k is the lane size;
   # route weights are its RRF weight in the multimodal fusion pass.
   visual_text_top_k: 20
   # Pin retrieval to one day for questions that name none (day1..day4); null
@@ -142,8 +142,8 @@ ui:
   score_mode: "reranker"  # rrf_normalized | cosine | reranker
 
 wandb:
-  enabled: false          # set to true or pass --wandb to castlerag answer/eval
-  project: "castlerag"
+  enabled: false          # set to true or pass --wandb to alignview answer/eval
+  project: "alignview"
   entity: "foundationmodels"  # W&B team
   run_name: ""            # auto-generated if blank
 

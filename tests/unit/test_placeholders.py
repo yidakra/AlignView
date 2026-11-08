@@ -10,14 +10,14 @@ from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
-from castlerag.cli import app
-from castlerag.index.io import load_clip_records, write_jsonl_records
-from castlerag.index.pipeline import (
+from alignview.cli import app
+from alignview.index.io import load_clip_records, write_jsonl_records
+from alignview.index.pipeline import (
     LoadedArtifacts,
     filter_records,
     prune_stale_points,
 )
-from castlerag.schemas import EventSummaryRecord
+from alignview.schemas import EventSummaryRecord
 from tests.unit.test_fixedcams import EGO, EXO, _cfg, _clip
 from tests.unit.test_preprocessing import _save_card, _save_still_room
 
@@ -52,7 +52,7 @@ def _cfg_file(tmp_path: Path, chunks: Path) -> Path:
 
 
 def test_caption_skips_placeholder_clips(tmp_path: Path, monkeypatch):
-    from castlerag.preprocess import caption_ocr
+    from alignview.preprocess import caption_ocr
 
     chunks = tmp_path / "chunks"
     path = chunks / "day1" / "Reading" / "08" / "clips.jsonl"
@@ -239,7 +239,7 @@ def test_events_rebuild_clears_events_no_longer_possible(tmp_path: Path):
 
 def test_index_prunes_a_day_with_nothing_left_to_index(tmp_path: Path, monkeypatch):
     """All clips re-flagged, no events or transcripts: prune instead of failing."""
-    import castlerag.cli as cli
+    import alignview.cli as cli
 
     chunks = tmp_path / "chunks"
     card = _clip("Reading", 0, fixed=True).model_copy(update={"is_placeholder": True})
@@ -278,8 +278,8 @@ def test_index_still_fails_for_a_day_without_chunks(tmp_path: Path):
 
 
 def test_transcript_bm25_handles_an_empty_corpus(tmp_path: Path):
-    from castlerag.index.transcript_lexical import build_bm25_index, load_bm25_index
-    from castlerag.retrieval.transcript_lexical import score_windows
+    from alignview.index.transcript_lexical import build_bm25_index, load_bm25_index
+    from alignview.retrieval.transcript_lexical import score_windows
 
     path = tmp_path / "transcripts.pkl"
     built = build_bm25_index([], path)
@@ -291,8 +291,8 @@ def test_transcript_bm25_handles_an_empty_corpus(tmp_path: Path):
 def test_load_caches_drops_rows_of_replaced_events(tmp_path: Path, caplog):
     import numpy as np
 
-    from castlerag.index.io import write_embedding_cache
-    from castlerag.index.pipeline import load_dense_caches
+    from alignview.index.io import write_embedding_cache
+    from alignview.index.pipeline import load_dense_caches
 
     cache = tmp_path / "emb"
     cache.mkdir()
@@ -314,8 +314,8 @@ def test_load_caches_still_rejects_a_cache_from_other_chunks(tmp_path: Path):
     import numpy as np
     import pytest
 
-    from castlerag.index.io import write_embedding_cache
-    from castlerag.index.pipeline import load_dense_caches
+    from alignview.index.io import write_embedding_cache
+    from alignview.index.pipeline import load_dense_caches
 
     cache = tmp_path / "emb"
     cache.mkdir()

@@ -10,8 +10,8 @@ module purge
 module load 2024
 module load Python/3.12.3-GCCcore-13.3.0
 module load CUDA/12.6.0
-source "${HOME}/castlerag_venv/bin/activate"
-cd "${HOME}/CastleRAG"
+source "${HOME}/alignview_venv/bin/activate"
+cd "${HOME}/AlignView"
 mkdir -p logs
 GEN_LOG="logs/live_vllm_$$.log"; QLOG="logs/live_qdrant_$$.log"
 
@@ -35,15 +35,15 @@ echo "[live] vllm ready"
 
 export VLLM_BASE_URL=http://localhost:8201/v1
 export OMNIEMBED_QUERY_CACHE="${SC}/castle_derived/embeddings/query_cache.npz"
-export CASTLERAG_CONFIG=configs/snellius_me.yaml
+export ALIGNVIEW_CONFIG=configs/snellius_me.yaml
 
 PYTHONPATH=src python - <<'PY'
 import json, sys, traceback
 out = {}
 try:
-    from castlerag.config import load_config
-    from castlerag.ui.engine_factory import build_engine, engine_mode
-    from castlerag.ui.youtube import YouTubeMirror
+    from alignview.config import load_config
+    from alignview.ui.engine_factory import build_engine, engine_mode
+    from alignview.ui.youtube import YouTubeMirror
     cfg = load_config(override_path="configs/snellius_me.yaml")
     eng = build_engine(YouTubeMirror.from_csv(), cfg=cfg, require_live=True)
     out["engine"] = type(eng).__name__

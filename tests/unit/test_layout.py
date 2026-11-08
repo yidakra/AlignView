@@ -1,10 +1,10 @@
-"""Tests for src/castlerag/dataset/layout.py"""
+"""Tests for src/alignview/dataset/layout.py"""
 
 from pathlib import Path
 
 import pytest
 
-from castlerag.dataset.layout import (
+from alignview.dataset.layout import (
     build_camera_registry,
     discover_hours,
     hour_transcript_path,

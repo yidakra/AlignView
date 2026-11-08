@@ -1,4 +1,4 @@
-# Demo: exposing the live CastleRAG UI
+# Demo: exposing the live AlignView UI
 
 `scripts/slurm/ui_live.slurm` boots the full backend (OmniEmbed `:8200`,
 Qwen3-VL `:8201`, Qdrant) against the **existing** persisted index and serves the
@@ -17,7 +17,7 @@ It has four exposure modes, selected by env vars at submit time:
 
 If more than one is set, the named tunnel wins, then ngrok, then the quick tunnel.
 
-All modes run `castlerag ui --require-live`, so the job fails loudly with the
+All modes run `alignview ui --require-live`, so the job fails loudly with the
 exact missing dependency rather than silently serving the offline placeholder.
 
 > **Why `--protocol http2`?** Snellius compute nodes firewall QUIC/UDP-7844
@@ -30,11 +30,11 @@ exact missing dependency rather than silently serving the offline placeholder.
 
 ## SSH tunnel (default — for developers)
 
-The commands below use `--account=gisr109364`. The account is per user, so
+The commands below use `--account=<account>`. The account is per user, so
 run `accinfo` on Snellius and use the one it shows for you.
 
 ```bash
-sbatch --account=gisr109364 scripts/slurm/ui_live.slurm
+sbatch --account=<account> scripts/slurm/ui_live.slurm
 # NODE is printed in logs/castle-ui-live_<jobid>.out, then from your laptop:
 ssh -L 8050:<NODE>:8050 <user>@snellius.surf.nl
 # open http://localhost:8050  (top-bar chip should read "live RAG")
@@ -64,7 +64,7 @@ No shared password. Requires a Cloudflare account with a domain (zone).
 ### Run it (demo day)
 
 ```bash
-sbatch --account=gisr109364 \
+sbatch --account=<account> \
   --export=ALL,NAMED_TUNNEL_TOKEN=eyJ...<your token>... \
   scripts/slurm/ui_live.slurm
 ```
@@ -77,7 +77,7 @@ reserved for next time.
 - The **token is a secret** — pass it via `--export` at submit time (as above)
   or a file the job reads; never commit it.
 - Basic auth is **optional** in named mode (Access already gates at the edge).
-  Set `CASTLERAG_UI_BASIC_AUTH=user:pass` too only if you want defense-in-depth.
+  Set `ALIGNVIEW_UI_BASIC_AUTH=user:pass` too only if you want defense-in-depth.
 
 ---
 
@@ -106,14 +106,14 @@ once per browser and click **Visit Site** to continue.
 ### Run it
 
 ```bash
-sbatch --account=gisr109364 --time=12:00:00 \
-  --export=ALL,NGROK_DOMAIN=<name>.ngrok-free.app,CASTLERAG_UI_BASIC_AUTH="$(cat ~/.castlerag_ui_auth)" \
+sbatch --account=<account> --time=12:00:00 \
+  --export=ALL,NGROK_DOMAIN=<name>.ngrok-free.app,ALIGNVIEW_UI_BASIC_AUTH="$(cat ~/.alignview_ui_auth)" \
   scripts/slurm/ui_live.slurm
 ```
 
 `--time` overrides the script's 3-hour default; the job costs about 256 SBU per
 hour. Like the quick tunnel, it refuses to start without
-`CASTLERAG_UI_BASIC_AUTH`. The agent log goes to `logs/ui_ngrok_<jobid>.log`.
+`ALIGNVIEW_UI_BASIC_AUTH`. The agent log goes to `logs/ui_ngrok_<jobid>.log`.
 
 ---
 
@@ -124,20 +124,20 @@ The URL **rotates every run** and has no uptime guarantee, so share it at the
 start of the demo and tear down after.
 
 ```bash
-sbatch --account=gisr109364 \
-  --export=ALL,PUBLIC_TUNNEL=1,CASTLERAG_UI_BASIC_AUTH=demo:<password> \
+sbatch --account=<account> \
+  --export=ALL,PUBLIC_TUNNEL=1,ALIGNVIEW_UI_BASIC_AUTH=demo:<password> \
   scripts/slurm/ui_live.slurm
 # public URL prints in logs/castle-ui-live_<jobid>.out
 ```
 
-The job **refuses to open the tunnel without `CASTLERAG_UI_BASIC_AUTH`** — the
+The job **refuses to open the tunnel without `ALIGNVIEW_UI_BASIC_AUTH`** — the
 app gates every request, so the live GPU backend is never exposed unauthenticated.
 
 ---
 
 ## User-study interaction log (opt-in)
 
-For a user-study session, set `CASTLERAG_STUDY_LOG` to a file path and the
+For a user-study session, set `ALIGNVIEW_STUDY_LOG` to a file path and the
 dashboard appends one JSON line per interaction to it. Each browser tab then
 shows a quiet **Session code: K7F2QX** badge in the top bar. Participants copy
 it into the Google Form, and that code is the only link between a form
@@ -146,8 +146,8 @@ gets a new one. Unset (the default), nothing is written and no code is shown.
 
 ```bash
 read -rs -p "study password: " PW; echo
-CASTLERAG_UI_BASIC_AUTH="study:${PW}" sbatch --account=gisr109364 \
-  --export=ALL,PUBLIC_TUNNEL=1,CASTLERAG_STUDY_LOG=/projects/prjs2298/user_study/logs/session_$(date +%F).jsonl \
+ALIGNVIEW_UI_BASIC_AUTH="study:${PW}" sbatch --account=<account> \
+  --export=ALL,PUBLIC_TUNNEL=1,ALIGNVIEW_STUDY_LOG=/projects/<project>/user_study/logs/session_$(date +%F).jsonl \
   scripts/slurm/ui_live.slurm
 unset PW
 ```

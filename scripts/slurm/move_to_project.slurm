@@ -25,7 +25,7 @@ DST_CONF="${DST_CONF:-configs/snellius_project.yaml}"
 mkdir -p logs
 module purge >/dev/null 2>&1; module load 2024 >/dev/null 2>&1
 module load Python/3.12.3-GCCcore-13.3.0 >/dev/null 2>&1
-source "${HOME}/castlerag_venv/bin/activate"
+source "${HOME}/alignview_venv/bin/activate"
 cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}" || exit 1
 
 # Any other job of ours may write chunks or caches, or run Qdrant on the scratch
@@ -40,10 +40,10 @@ if [ -n "$BUSY" ]; then
   echo "$BUSY"; exit 2
 fi
 
-# `castlerag paths` prints shell-quoted assignments; eval them (prefixed) so
+# `alignview paths` prints shell-quoted assignments; eval them (prefixed) so
 # quoting is decoded the way the shell would.
-S="$(castlerag paths --config "$SRC_CONF")" || exit 2
-D="$(castlerag paths --config "$DST_CONF")" || exit 2
+S="$(alignview paths --config "$SRC_CONF")" || exit 2
+D="$(alignview paths --config "$DST_CONF")" || exit 2
 eval "$(printf '%s\n' "$S" | sed 's/^/SRC_/')"
 eval "$(printf '%s\n' "$D" | sed 's/^/DST_/')"
 SRC_CHUNKS="$SRC_CHUNKS_DIR"; DST_CHUNKS="$DST_CHUNKS_DIR"

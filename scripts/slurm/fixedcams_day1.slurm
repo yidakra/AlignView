@@ -1,6 +1,5 @@
 #!/bin/bash
-# fixedcams_day1.slurm — kept so the old commands keep working. It is the
-# day-1 additive fixed-camera ingest of #50 Bug B, which now lives in the
+# fixedcams_day1.slurm — the day-1 additive fixed-camera ingest, which lives in the
 # day-generic scripts/slurm/ingest_day.slurm; this wrapper pins DAY=1 and keeps
 # the old job name, so the log is still logs/castle-fixedcams-day1_<job>.out.
 # CAMS / SKIP_BASE / SPLIT / TARGET_WORKERS / HOURS / SNAPSHOT / MIN_POINTS /
@@ -11,7 +10,7 @@
 #   sbatch --account=gisr109364 --export=ALL,CAMS="Reading" scripts/slurm/fixedcams_day1.slurm
 #
 # The account is per user (`accinfo` shows yours). Other days:
-# docs/ingest_all_days.md. Day-1 runbook: docs/fixedcams_reingest.md
+# docs/ingest_all_days.md.
 
 #SBATCH --job-name=castle-fixedcams-day1
 #SBATCH --partition=gpu_a100

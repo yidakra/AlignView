@@ -1,7 +1,7 @@
 #!/bin/bash
 # embed_images.slurm
 # OmniEmbed encoding for photos and thermal images.
-# Batch size: 16 (image modality) — see SPEC §3.2.
+# Batch size: 16 (image modality)
 #
 # Usage:
 #   sbatch --account=<account> --dependency=afterok:<preprocess_aux_job_id> \
@@ -21,7 +21,7 @@
 set -euo pipefail
 
 CONFIG="${CONFIG:-configs/snellius.yaml}"
-VENV="${VENV:-${HOME}/castlerag_venv}"
+VENV="${VENV:-${HOME}/alignview_venv}"
 
 echo "[embed_images]  host=$(hostname)  start=$(date -Iseconds)"
 
@@ -29,7 +29,7 @@ module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12
 
 source "${VENV}/bin/activate"
 
-castlerag embed \
+alignview embed \
     --config "${CONFIG}" \
     --modality image
 

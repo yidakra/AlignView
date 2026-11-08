@@ -68,7 +68,7 @@ def run(script, env, job):
 
 
 def holder(store):
-    return (store / ".castlerag-qdrant.lock").read_text().split()[:2]
+    return (store / ".alignview-qdrant.lock").read_text().split()[:2]
 
 
 def test_first_job_takes_the_lock(env):
@@ -110,7 +110,7 @@ def test_lock_of_ended_job_is_taken_over(env, state):
     assert r.returncode == 0, r.stderr
     assert "took over a stale lock" in r.stdout
     assert holder(store) == ["bob", "202"]
-    assert not (store / ".castlerag-qdrant.lock.takeover").exists()
+    assert not (store / ".alignview-qdrant.lock.takeover").exists()
 
 
 def test_takeover_refused_while_another_job_holds_the_mutex(env):
@@ -118,7 +118,7 @@ def test_takeover_refused_while_another_job_holds_the_mutex(env):
     store = tmp / "qdrant_storage"
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
     states.write_text("101 COMPLETED\n")
-    (store / ".castlerag-qdrant.lock.takeover").mkdir()
+    (store / ".alignview-qdrant.lock.takeover").mkdir()
     r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
     assert r.returncode == 4
     assert "taking over the stale lock right now" in r.stderr
@@ -128,7 +128,7 @@ def test_takeover_refused_while_another_job_holds_the_mutex(env):
 def test_takeover_refused_if_lock_changes_hands_mid_check(env):
     tmp, states, base = env
     store = tmp / "qdrant_storage"
-    lock = store / ".castlerag-qdrant.lock"
+    lock = store / ".alignview-qdrant.lock"
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
     states.write_text("101 COMPLETED\n")
     # carol's job grabs the lock while bob is asking sacct about alice's
@@ -138,14 +138,14 @@ def test_takeover_refused_if_lock_changes_hands_mid_check(env):
     assert r.returncode == 4
     assert "changed hands" in r.stderr
     assert holder(store) == ["carol", "909"]
-    assert not (store / ".castlerag-qdrant.lock.takeover").exists()
+    assert not (store / ".alignview-qdrant.lock.takeover").exists()
 
 
 def test_empty_or_partial_lock_is_not_taken_over(env):
     tmp, _, base = env
     store = tmp / "qdrant_storage"
     store.mkdir()
-    (store / ".castlerag-qdrant.lock").write_text("")
+    (store / ".alignview-qdrant.lock").write_text("")
     r = run(f'qdrant_lock "{store}"', base, 202)
     assert r.returncode == 4
     assert "empty or partial" in r.stderr
@@ -163,7 +163,7 @@ def test_lock_held_outside_slurm_is_not_taken_over(env):
 def test_unlock_only_removes_own_lock(env):
     tmp, _, base = env
     store = tmp / "qdrant_storage"
-    lock = store / ".castlerag-qdrant.lock"
+    lock = store / ".alignview-qdrant.lock"
     r = run(f'qdrant_lock "{store}"; qdrant_unlock; test ! -e "{lock}"', base, 101)
     assert r.returncode == 0, r.stderr
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
@@ -197,7 +197,7 @@ def test_mutex_of_ended_job_is_cleared(env):
     store = tmp / "qdrant_storage"
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
     states.write_text("101 COMPLETED\n777 CANCELLED\n")
-    mutex = store / ".castlerag-qdrant.lock.takeover"
+    mutex = store / ".alignview-qdrant.lock.takeover"
     mutex.mkdir()
     (mutex / "owner").write_text("dave 777 gcn9 2026-01-01T00:00:00\n")
     r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
@@ -212,7 +212,7 @@ def test_mutex_of_live_job_is_never_cleared(env):
     store = tmp / "qdrant_storage"
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
     states.write_text("101 COMPLETED\n777 RUNNING\n")
-    mutex = store / ".castlerag-qdrant.lock.takeover"
+    mutex = store / ".alignview-qdrant.lock.takeover"
     mutex.mkdir()
     (mutex / "owner").write_text("dave 777 gcn9 2026-01-01T00:00:00\n")
     old = mutex.stat().st_mtime - 3600  # age alone must not matter
@@ -228,7 +228,7 @@ def test_ownerless_mutex_is_cleared_only_when_old(env):
     store = tmp / "qdrant_storage"
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
     states.write_text("101 COMPLETED\n")
-    mutex = store / ".castlerag-qdrant.lock.takeover"
+    mutex = store / ".alignview-qdrant.lock.takeover"
     mutex.mkdir()
     r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
     assert r.returncode == 4  # fresh: a contender may be about to record itself
@@ -244,7 +244,7 @@ def test_mutex_left_outside_slurm_is_cleared_only_when_old(env):
     store = tmp / "qdrant_storage"
     assert run(f'qdrant_lock "{store}"', base, 101).returncode == 0
     states.write_text("101 COMPLETED\n")
-    mutex = store / ".castlerag-qdrant.lock.takeover"
+    mutex = store / ".alignview-qdrant.lock.takeover"
     mutex.mkdir()
     (mutex / "owner").write_text("dave nojob laptop 2026-01-01T00:00:00\n")
     r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
@@ -254,4 +254,4 @@ def test_mutex_left_outside_slurm_is_cleared_only_when_old(env):
     r = run(f'qdrant_lock "{store}"', dict(base, USER="bob"), 202)
     assert r.returncode == 0, r.stderr
     assert holder(store) == ["bob", "202"]
-    assert not list(store.glob(".castlerag-qdrant.lock.takeover.stale.*"))
+    assert not list(store.glob(".alignview-qdrant.lock.takeover.stale.*"))

@@ -1,0 +1,716 @@
+"""Artifact discovery and dense-index build orchestration."""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Iterable, List, Optional, Sequence
+
+import numpy as np
+
+from alignview import __version__
+from alignview.config import AlignViewConfig
+from alignview.embed.omniembed import OmniEmbedClient
+from alignview.index.io import (
+    load_aux_records,
+    load_clip_records,
+    load_embedding_cache,
+    load_event_summary_records,
+    load_transcript_windows,
+    write_embedding_cache,
+    write_json,
+)
+from alignview.index.qdrant import (
+    bootstrap_collection,
+    build_point_batches,
+    upsert_batch,
+)
+from alignview.index.transcript_lexical import build_bm25_index
+from alignview.index.visual_lexical import (
+    VISUAL_TEXT_INDEX_NAME,
+    build_visual_bm25_index,
+)
+from alignview.schemas import (
+    AuxRecord,
+    ClipRecord,
+    EventSummaryRecord,
+    TranscriptWindow,
+)
+
+Record = TranscriptWindow | ClipRecord | EventSummaryRecord | AuxRecord
+
+_TRANSCRIPT_FILES = ("transcripts.jsonl",)
+_CLIP_FILES = ("clips.jsonl",)
+_EVENT_FILES = ("events.jsonl",)
+_AUX_FILES = ("aux.jsonl",)
+
+_CACHE_TRANSCRIPTS = "transcripts.npz"
+_CACHE_EVENTS = "events.npz"
+_CACHE_CLIPS = "clips.npz"
+_CACHE_AUX_TEXT = "aux_text.npz"
+_CACHE_AUX_IMAGE = "aux_image.npz"
+_CACHE_AUX_VIDEO = "aux_video.npz"
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class ChunkArtifacts:
+    transcripts: List[Path]
+    clips: List[Path]
+    events: List[Path]
+    aux: List[Path]
+
+
+@dataclass
+class LoadedArtifacts:
+    transcripts: List[TranscriptWindow]
+    clips: List[ClipRecord]
+    events: List[EventSummaryRecord]
+    aux: List[AuxRecord]
+
+
+@dataclass
+class CacheArtifact:
+    name: str
+    path: Path
+    record_ids: List[str]
+    vectors: np.ndarray
+    records: List[Record]
+
+
+def discover_chunk_artifacts(chunks_dir: Path) -> ChunkArtifacts:
+    """Recursively discover preprocessed chunk JSONL artifacts."""
+
+    def _glob(names: Sequence[str]) -> List[Path]:
+        """Glob chunks_dir for each filename pattern and return sorted unique paths."""
+        matches: List[Path] = []
+        for name in names:
+            matches.extend(sorted(chunks_dir.rglob(name)))
+        return sorted(set(matches))
+
+    return ChunkArtifacts(
+        transcripts=_glob(_TRANSCRIPT_FILES),
+        clips=_glob(_CLIP_FILES),
+        events=_glob(_EVENT_FILES),
+        aux=_glob(_AUX_FILES),
+    )
+
+
+def load_chunk_records(chunks_dir: Path) -> LoadedArtifacts:
+    """Load all discovered chunk artifacts into typed record lists."""
+    artifacts = discover_chunk_artifacts(chunks_dir)
+    transcripts = [
+        row for path in artifacts.transcripts for row in load_transcript_windows(path)
+    ]
+    clips = [row for path in artifacts.clips for row in load_clip_records(path)]
+    events = [
+        row for path in artifacts.events for row in load_event_summary_records(path)
+    ]
+    aux = [row for path in artifacts.aux for row in load_aux_records(path)]
+    return LoadedArtifacts(transcripts=transcripts, clips=clips, events=events, aux=aux)
+
+
+def filter_records(
+    records: LoadedArtifacts,
+    cfg: AlignViewConfig,
+    day: Optional[int] = None,
+) -> LoadedArtifacts:
+    """Filter loaded artifacts to the configured camera scope and optional day."""
+    day_label = f"day{day}" if day is not None else None
+
+    def _camera_allowed(camera_id: Optional[str], camera_type: Optional[str]) -> bool:
+        """Return True if the camera is within the configured scope."""
+        if cfg.dataset.camera_scope == "all":
+            return True
+        if camera_type == "fixed":
+            return False
+        if camera_id is None:
+            return True
+        return camera_id in set(cfg.dataset.ego_cameras)
+
+    return LoadedArtifacts(
+        transcripts=[
+            row
+            for row in records.transcripts
+            if (day_label is None or row.day == day_label)
+            and _camera_allowed(row.camera_id, row.camera_type)
+        ],
+        # Placeholder clips (test card, blank) are not embedded or indexed.
+        clips=[
+            row
+            for row in records.clips
+            if (day_label is None or row.day == day_label)
+            and _camera_allowed(row.camera_id, row.camera_type)
+            and not row.is_placeholder
+        ],
+        events=[
+            row
+            for row in records.events
+            if (day_label is None or row.day == day_label)
+            and _camera_allowed(row.camera_id, row.camera_type)
+        ],
+        aux=[
+            row
+            for row in records.aux
+            if (day_label is None or row.day == day_label)
+            and _camera_allowed(row.camera_id, row.camera_type)
+        ],
+    )
+
+
+def build_bm25_artifact(records: LoadedArtifacts, out_dir: Path) -> Path:
+    """Build the transcript BM25 artifact from normalized transcript windows."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "transcripts.pkl"
+    build_bm25_index(records.transcripts, out_path)
+    return out_path
+
+
+def build_visual_bm25_artifact(records: LoadedArtifacts, out_dir: Path) -> Path:
+    """Build the visual-text BM25 artifact (captions + OCR + scene graphs).
+
+    CPU-only and rebuilt from every loaded clip/event record, like the
+    transcript artifact, so a day- or camera-scoped ingest never drops
+    earlier records from the lane.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / VISUAL_TEXT_INDEX_NAME
+    build_visual_bm25_index(records.clips, records.events, out_path)
+    return out_path
+
+
+def cache_dense_embeddings(
+    records: LoadedArtifacts,
+    cfg: AlignViewConfig,
+    embed_client: OmniEmbedClient,
+    modality: str | None = None,
+    day: Optional[int] = None,
+    force: bool = False,
+) -> List[Path]:
+    """Write restart-safe dense embedding caches for all available record groups."""
+    cache_dir = Path(cfg.embedding.cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    scoped = filter_records(records, cfg, day=day)
+    # Every id that still resolves to a chunk record on disk, in or out of the
+    # current scope. ``force`` keeps out-of-scope rows only if they are live,
+    # so it both preserves e.g. fixed rows under an ego config and prunes
+    # stale ids that would make ``load_dense_caches`` raise later.
+    live_ids = frozenset(_record_index(records))
+    suffix = _cache_suffix(day)
+    day_label = f"day{day}" if day is not None else None
+
+    cache_paths: List[Path] = []
+    if modality in (None, "transcript"):
+        cache_paths.append(
+            _cache_records(
+                name="transcripts",
+                records=scoped.transcripts,
+                cache_path=cache_dir / f"transcripts{suffix}.npz",
+                embed_fn=embed_client.embed_texts,
+                batch_size=cfg.embedding.batch_sizes.transcript,
+                payload_fn=lambda row: row.transcript_text,
+                record_id_fn=lambda row: row.transcript_window_id,
+                force=force,
+                live_ids=live_ids,
+            )
+        )
+
+    if modality in (None, "event_summary"):
+        event_records = [row for row in scoped.events if row.event_summary]
+        cache_paths.append(
+            _cache_records(
+                name="events",
+                records=event_records,
+                cache_path=cache_dir / f"events{suffix}.npz",
+                embed_fn=embed_client.embed_texts,
+                batch_size=cfg.embedding.batch_sizes.event_summary,
+                payload_fn=lambda row: row.event_summary or "",
+                record_id_fn=lambda row: row.event_summary_id,
+                force=force,
+                live_ids=live_ids,
+            )
+        )
+
+    if modality in (None, "video"):
+        # vLLM's /v1/embeddings is text-only, so the clip's textual surface
+        # (caption + transcript + OCR) gates inclusion rather than the presence
+        # of extracted frames.  embed_videos() already prepends "Query: " when
+        # it falls back to embed_texts(), so the payload is the raw text.
+        clip_records = [
+            row
+            for row in scoped.clips
+            if row.clip_caption
+            or row.scene_graph_text
+            or row.transcript_text
+            or row.ocr_text
+        ]
+        cache_paths.append(
+            _cache_records(
+                name="clips",
+                records=clip_records,
+                cache_path=cache_dir / f"clips{suffix}.npz",
+                embed_fn=embed_client.embed_videos,
+                batch_size=cfg.embedding.batch_sizes.video,
+                payload_fn=lambda row: (
+                    " | ".join(
+                        s for s in (
+                            row.clip_caption,
+                            row.scene_graph_text,
+                            row.transcript_text,
+                            row.ocr_text,
+                        ) if s
+                    ) or "Video clip"
+                ),
+                record_id_fn=lambda row: row.clip_id,
+                force=force,
+                live_ids=live_ids,
+            )
+        )
+        aux_video_records = [
+            row
+            for row in scoped.aux
+            if row.modality == "video" and _aux_video_frames(row)
+        ]
+        cache_paths.append(
+            _cache_records(
+                name="aux_video",
+                records=aux_video_records,
+                cache_path=cache_dir / f"aux_video{suffix}.npz",
+                embed_fn=embed_client.embed_videos,
+                batch_size=cfg.embedding.batch_sizes.video,
+                # Frame paths reach the text-only backend as a list, which
+                # falls back to the literal "Video clip" string and collapses
+                # every aux_video vector onto a single point.  Embed the
+                # record id instead so each row gets a distinct vector.
+                payload_fn=_aux_video_payload,
+                record_id_fn=lambda row: row.clip_id,
+                force=force,
+                live_ids=live_ids,
+            )
+        )
+
+    if modality in (None, "image"):
+        aux_image_records = [
+            row for row in scoped.aux if row.modality == "image" and row.asset_path
+        ]
+        cache_paths.append(
+            _cache_records(
+                name="aux_image",
+                records=aux_image_records,
+                cache_path=cache_dir / f"aux_image{suffix}.npz",
+                embed_fn=embed_client.embed_images,
+                batch_size=cfg.embedding.batch_sizes.image,
+                payload_fn=lambda row: row.asset_path or "",
+                record_id_fn=lambda row: row.clip_id,
+                force=force,
+                live_ids=live_ids,
+            )
+        )
+
+    if modality in (None, "text"):
+        aux_text_records = [
+            row for row in scoped.aux if row.modality == "text" and row.summary_text
+        ]
+        cache_paths.append(
+            _cache_records(
+                name="aux_text",
+                records=aux_text_records,
+                cache_path=cache_dir / f"aux_text{suffix}.npz",
+                embed_fn=embed_client.embed_texts,
+                batch_size=cfg.embedding.batch_sizes.event_summary,
+                payload_fn=lambda row: row.summary_text or "",
+                record_id_fn=lambda row: row.clip_id,
+                force=force,
+                live_ids=live_ids,
+            )
+        )
+
+    summary = {
+        "model": cfg.embedding.model,
+        "backend": cfg.embedding.backend,
+        "generated_files": [str(path) for path in cache_paths if path.exists()],
+        "dim": embed_client.dim,
+        "day": day_label,
+        "version": __version__,
+    }
+    write_json(cache_dir / f"manifest{suffix}.json", summary)
+    return [path for path in cache_paths if path.exists()]
+
+
+def load_dense_caches(
+    cache_dir: Path,
+    records: LoadedArtifacts,
+    *,
+    pattern: str = "*.npz",
+    scope: Optional[LoadedArtifacts] = None,
+) -> List[CacheArtifact]:
+    """Load available dense embedding caches and join them back to typed records.
+
+    ``pattern`` restricts which cache files are read; the default loads every
+    ``*.npz`` under ``cache_dir``.  Pass ``*_day{N}.npz`` when only the
+    day-N subset should be upserted.
+
+    Caches are append-only, so after a rebuild (e.g. events re-grouped by the
+    placeholder re-flag) they can hold rows whose records no longer exist.
+    Those rows are dropped with a warning, and ``prune_stale_points`` removes
+    their old Qdrant points. A cache in which *no* id resolves is a different
+    cache altogether (wrong path, other chunks) and raises ``KeyError``.
+    When ``scope`` is given, cached rows whose ids are not in ``scope``
+    are dropped, so a cache that also holds out-of-scope rows (e.g. fixed-camera
+    clips appended by a ``camera_scope="all"`` run) can still be indexed under
+    a narrower scope without error.
+    """
+    index = _record_index(records)
+    allowed = set(_record_index(scope)) if scope is not None else None
+    artifacts: List[CacheArtifact] = []
+    cache_paths = sorted(cache_dir.glob(pattern))
+    for path in cache_paths:
+        record_ids, vectors = load_embedding_cache(path)
+        missing = [record_id for record_id in record_ids if record_id not in index]
+        if missing and len(missing) == len(record_ids):
+            raise KeyError(f"Missing records for cached ids in {path}: {missing[:5]}")
+        if missing:
+            log.warning(
+                "%s: dropping %d cached rows whose records no longer exist "
+                "(e.g. events replaced by a rebuild): %s",
+                path.name,
+                len(missing),
+                missing[:5],
+            )
+            gone = set(missing)
+            keep = [i for i, rid in enumerate(record_ids) if rid not in gone]
+            record_ids = [record_ids[i] for i in keep]
+            vectors = vectors[keep]
+        if allowed is not None:
+            keep = [i for i, record_id in enumerate(record_ids) if record_id in allowed]
+            if len(keep) != len(record_ids):
+                record_ids = [record_ids[i] for i in keep]
+                vectors = vectors[keep] if keep else vectors[:0]
+        typed_records = [index[record_id] for record_id in record_ids]
+        artifacts.append(
+            CacheArtifact(
+                name=path.stem,
+                path=path,
+                record_ids=record_ids,
+                vectors=vectors,
+                records=typed_records,
+            )
+        )
+    return artifacts
+
+
+def build_qdrant_index(
+    cfg: AlignViewConfig,
+    records: LoadedArtifacts,
+    recreate: bool = False,
+    day: Optional[int] = None,
+) -> tuple[int, List[Path]]:
+    """Bootstrap Qdrant and upsert dense caches.
+
+    When ``day`` is set, ``records`` is filtered to that day and only the
+    matching ``*_day{N}.npz`` cache files are upserted, so incremental
+    re-runs (e.g. after adding a new day's chunks) do not re-upsert the
+    days already in the collection.
+    """
+    cache_dir = Path(cfg.embedding.cache_dir)
+    scoped = filter_records(records, cfg, day=day)
+    pattern = f"*_day{day}.npz" if day is not None else "*.npz"
+    cache_artifacts = load_dense_caches(
+        cache_dir, records, pattern=pattern, scope=scoped
+    )
+    if not cache_artifacts:
+        raise FileNotFoundError(f"No embedding caches found under {cache_dir}")
+
+    vector_size = _discover_vector_size(cache_artifacts)
+    client = bootstrap_collection(
+        host=cfg.qdrant.host,
+        port=cfg.qdrant.port,
+        collection_name=cfg.qdrant.collection,
+        vector_size=vector_size,
+        distance=cfg.qdrant.distance,
+        on_disk_payload=cfg.qdrant.on_disk_payload,
+        recreate=recreate,
+    )
+
+    # Qdrant's REST POST body limit defaults to 32 MB; chunk upserts so a
+    # 3584-dim clip artifact (~64 KB/point with payload) stays well under it.
+    # Smaller chunks keep each on-disk upsert fast enough to avoid client
+    # timeouts on slower scratch storage.
+    upsert_chunk = 64
+    for artifact in cache_artifacts:
+        payload_rows = build_point_batches(
+            artifact.records,
+            model_version=cfg.version,
+            model_name=cfg.embedding.model,
+            build_id=f"castle-index-{__version__}",
+        )
+        point_ids = [row.point_id for row in payload_rows]
+        payloads = [row.model_dump(exclude_none=True) for row in payload_rows]
+        for start in range(0, len(point_ids), upsert_chunk):
+            stop = start + upsert_chunk
+            upsert_batch(
+                client=client,
+                collection_name=cfg.qdrant.collection,
+                point_ids=point_ids[start:stop],
+                vectors=artifact.vectors[start:stop].tolist(),
+                payloads=payloads[start:stop],
+            )
+
+    removed = prune_stale_points(client, cfg, records, day=day)
+    if removed:
+        log.info("pruned %d stale clip/event points", removed)
+    return vector_size, [artifact.path for artifact in cache_artifacts]
+
+
+def prune_day_without_index(
+    cfg: AlignViewConfig, records: LoadedArtifacts, day: int
+) -> int:
+    """Prune a day that has chunk records but nothing left to index.
+
+    E.g. every clip re-flagged as a placeholder and no events or transcripts:
+    there is no dense cache to upsert, but the day's old points must still go.
+    Needs no cache or vector size. Returns points deleted (0 if no collection).
+    """
+    from alignview.index.qdrant import _collection_exists, get_client
+
+    client = get_client(host=cfg.qdrant.host, port=cfg.qdrant.port)
+    if not _collection_exists(client, cfg.qdrant.collection):
+        return 0
+    return prune_stale_points(client, cfg, records, day=day)
+
+
+def prune_stale_points(
+    client: Any,
+    cfg: AlignViewConfig,
+    records: LoadedArtifacts,
+    day: Optional[int] = None,
+) -> int:
+    """Delete clip and event points that the chunk files no longer back.
+
+    Upserts only add, so a re-flagged clip (now a placeholder) or an event that
+    re-grouping replaced would otherwise stay searchable. For each day and
+    camera that has clip records loaded, delete its ``main_clip`` points whose
+    clip is a placeholder, and its ``main_event_summary`` points whose id is not
+    in the current events. Cameras without chunk records are left alone, so a
+    missing chunk file never wipes a camera's points. Returns points deleted.
+    """
+    from qdrant_client.http import models as qm
+
+    in_scope = filter_records(records, cfg, day=day)
+    groups = {(c.day, c.camera_id) for c in records.clips if c.day and c.camera_id}
+    if day is not None:
+        groups = {g for g in groups if g[0] == f"day{day}"}
+    allowed_events = {(e.day, e.camera_id, e.event_summary_id) for e in in_scope.events}
+    removed = 0
+    for d, cam in sorted(groups):
+        placeholders = [
+            c.clip_id
+            for c in records.clips
+            if c.day == d and c.camera_id == cam and c.is_placeholder
+        ]
+        keep_events = [eid for (ed, ec, eid) in allowed_events if ed == d and ec == cam]
+        base = [
+            qm.FieldCondition(key="day", match=qm.MatchValue(value=d)),
+            qm.FieldCondition(key="camera_id", match=qm.MatchValue(value=cam)),
+        ]
+        selectors = []
+        for start in range(0, len(placeholders), 1000):
+            selectors.append(
+                qm.Filter(
+                    must=base
+                    + [
+                        qm.FieldCondition(
+                            key="source_type", match=qm.MatchValue(value="main_clip")
+                        ),
+                        qm.FieldCondition(
+                            key="record_id",
+                            match=qm.MatchAny(any=placeholders[start : start + 1000]),
+                        ),
+                    ]
+                )
+            )
+        event_filter = qm.Filter(
+            must=base
+            + [
+                qm.FieldCondition(
+                    key="source_type", match=qm.MatchValue(value="main_event_summary")
+                )
+            ],
+            must_not=(
+                [qm.FieldCondition(key="record_id", match=qm.MatchAny(any=keep_events))]
+                if keep_events
+                else []
+            ),
+        )
+        selectors.append(event_filter)
+        for flt in selectors:
+            n = client.count(cfg.qdrant.collection, count_filter=flt, exact=True).count
+            if n:
+                client.delete(
+                    cfg.qdrant.collection,
+                    points_selector=qm.FilterSelector(filter=flt),
+                    wait=True,
+                )
+                removed += n
+    return removed
+
+
+def _cache_records(
+    *,
+    name: str,
+    records: Sequence[Record],
+    cache_path: Path,
+    embed_fn: Callable[[list], np.ndarray],
+    batch_size: int,
+    payload_fn: Callable[[Record], str | List[str]],
+    record_id_fn: Callable[[Record], str],
+    force: bool,
+    live_ids: Optional[frozenset[str]] = None,
+) -> Path:
+    """Cache one homogeneous record set to an NPZ bundle, incrementally.
+
+    When ``cache_path`` already exists (and ``force`` is False), the cached
+    rows are kept verbatim and only records whose id is not yet cached are
+    embedded and appended. Re-running with the same records is therefore a
+    no-op, and widening the scope (e.g. adding the fixed room cameras to an
+    ego-only ``clips_day1.npz``) embeds just the new records instead of being
+    silently skipped because the file exists.
+    Cached rows outside the current scope are preserved, never dropped.
+    ``force`` re-embeds the records passed in (replacing their cached rows).
+    Other cached rows survive a forced run only if their id is in
+    ``live_ids`` (still backed by a chunk record on disk): out-of-scope rows
+    are kept, so a forced run under a narrow scope never deletes e.g. fixed
+    camera rows, while stale ids are pruned so ``--force`` stays the repair
+    path for a cache that no longer matches the chunks. With ``live_ids``
+    unset, a forced run keeps every other cached row.
+    """
+    existing_ids: List[str] = []
+    existing_vectors: Optional[np.ndarray] = None
+    if cache_path.exists():
+        existing_ids, existing_vectors = load_embedding_cache(cache_path)
+    have = set() if force else set(existing_ids)
+
+    pending: List[Record] = []
+    pending_ids: List[str] = []
+    for record in records:
+        record_id = record_id_fn(record)
+        if record_id in have:
+            continue
+        have.add(record_id)  # de-duplicate repeated ids within this call
+        pending.append(record)
+        pending_ids.append(record_id)
+    if not pending and not force:
+        return cache_path
+    if force and existing_ids:
+        # Drop the rows being re-embedded and any stale (no longer live) ids.
+        replaced = set(pending_ids)
+        keep = [
+            i
+            for i, rid in enumerate(existing_ids)
+            if rid not in replaced and (live_ids is None or rid in live_ids)
+        ]
+        existing_ids = [existing_ids[i] for i in keep]
+        existing_vectors = (
+            existing_vectors[keep] if existing_vectors is not None else None
+        )
+    if not pending:
+        # Forced run with nothing in scope: only the stale-id prune applies.
+        if existing_vectors is None or not cache_path.exists():
+            return cache_path
+        return write_embedding_cache(existing_ids, existing_vectors, cache_path)
+
+    payloads = [payload_fn(record) for record in pending]
+    vectors = _batched_embed(embed_fn, payloads, batch_size)
+    if len(pending_ids) != vectors.shape[0]:
+        raise ValueError(
+            f"{name} cache size mismatch: "
+            f"record_ids={len(pending_ids)} vectors={vectors.shape[0]}"
+        )
+    if existing_vectors is not None and existing_vectors.size:
+        if existing_vectors.shape[1] != vectors.shape[1]:
+            raise ValueError(
+                f"{name} cache dim mismatch in {cache_path}: cached "
+                f"{existing_vectors.shape[1]} vs new {vectors.shape[1]} — "
+                "embedding model changed? Delete the cache to rebuild."
+            )
+        vectors = np.concatenate([existing_vectors, vectors], axis=0)
+        pending_ids = existing_ids + pending_ids
+    return write_embedding_cache(pending_ids, vectors, cache_path)
+
+
+def _batched_embed(
+    embed_fn: Callable[[list], np.ndarray],
+    payloads: Sequence[str | List[str]],
+    batch_size: int,
+) -> np.ndarray:
+    """Embed a homogeneous payload list in deterministic contiguous batches."""
+    if not payloads:
+        return np.zeros((0, 0), dtype=np.float32)
+    batches: List[np.ndarray] = []
+    for start in range(0, len(payloads), batch_size):
+        batch = list(payloads[start : start + batch_size])
+        vectors = np.asarray(embed_fn(batch), dtype=np.float32)
+        if vectors.ndim != 2:
+            raise ValueError(f"Embedding batch must be 2D, got shape {vectors.shape}")
+        batches.append(vectors)
+    return np.concatenate(batches, axis=0)
+
+
+def _record_index(records: LoadedArtifacts) -> dict[str, Record]:
+    """Build a record-id-to-Record mapping from all artifact lists."""
+    index: dict[str, Record] = {}
+    for row in records.transcripts:
+        index[row.transcript_window_id] = row
+    for row in records.clips:
+        index[row.clip_id] = row
+    for row in records.events:
+        index[row.event_summary_id] = row
+    for row in records.aux:
+        index[row.clip_id] = row
+    return index
+
+
+def _discover_vector_size(cache_artifacts: Iterable[CacheArtifact]) -> int:
+    """Return the embedding dimension from the first non-empty cache artifact."""
+    for artifact in cache_artifacts:
+        if artifact.vectors.size and artifact.vectors.ndim == 2:
+            return int(artifact.vectors.shape[1])
+    raise ValueError("Could not discover vector size from empty caches")
+
+
+def _aux_video_payload(record: Record) -> str:
+    """Render an aux video record as a unique text payload for text-only embed.
+
+    The text-only vLLM backend turns list payloads into the literal
+    ``"Video clip"`` string and collapses every aux video vector onto the
+    same point.  Returning a distinct per-record string (with the summary,
+    owner, and id) gives each row its own dense vector.
+    """
+    if not isinstance(record, AuxRecord):
+        return "Aux video clip"
+    parts = [
+        f"Aux video {record.source_type}",
+        record.summary_text or "",
+        record.aux_owner or "",
+        record.clip_id,
+    ]
+    return " | ".join(s for s in parts if s)
+
+
+def _aux_video_frames(record: Record) -> List[str]:
+    """Return sampled frame paths from an AuxRecord's raw_features, or an empty list."""
+    if not isinstance(record, AuxRecord):
+        return []
+    if not isinstance(record.raw_features, dict):
+        return []
+    frame_paths = record.raw_features.get("sampled_frame_paths")
+    if not isinstance(frame_paths, list):
+        return []
+    return [str(path) for path in frame_paths if isinstance(path, str)]
+
+
+def _cache_suffix(day: Optional[int]) -> str:
+    """Return a day-qualified cache filename suffix, or an empty string."""
+    return f"_day{day}" if day is not None else ""

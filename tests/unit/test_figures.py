@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from castlerag.ui.figures import (
+from alignview.ui.figures import (
     _ACCENT,
     _MUTED,
     camera_match_figure,

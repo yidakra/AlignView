@@ -31,9 +31,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional
 
-from castlerag.config import load_config
-from castlerag.frame_encoding import relocate_frame_path, resolve_frame_path
-from castlerag.preprocess.media import extract_frames_1fps
+from alignview.config import load_config
+from alignview.frame_encoding import relocate_frame_path, resolve_frame_path
+from alignview.preprocess.media import extract_frames_1fps
 
 
 def iter_missing(chunks_day: Path) -> Iterator[dict]:

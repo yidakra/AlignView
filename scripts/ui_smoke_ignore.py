@@ -1,7 +1,7 @@
 """Live-UI smoke test for the '— Ignore' verdict convergence path.
 
 Drives a real browser through one ask → record verdicts (Confirm/Confirm/Ignore)
-→ submit-reviews cycle against the running CastleRAG UI, then asserts that the
+→ submit-reviews cycle against the running AlignView UI, then asserts that the
 investigation reaches the converged state: ``#converged-banner`` becomes visible
 and ``#compose-wrap`` stays hidden.
 
@@ -16,11 +16,11 @@ Usage
     .venv/bin/python -m playwright install chromium
 
 # Run against a live UI:
-    CASTLERAG_UI_BASIC_AUTH=demo:<pw> python scripts/ui_smoke_ignore.py
+    ALIGNVIEW_UI_BASIC_AUTH=demo:<pw> python scripts/ui_smoke_ignore.py
 
 Environment
 -----------
-CASTLERAG_UI_BASIC_AUTH   required, ``user:password`` for HTTP basic auth
+ALIGNVIEW_UI_BASIC_AUTH   required, ``user:password`` for HTTP basic auth
 UI_URL                    optional, defaults to ``http://localhost:8050/``
 UI_SMOKE_OUT_DIR          optional, screenshot directory (default outputs/ui_smoke)
 
@@ -48,10 +48,10 @@ def log(msg: str) -> None:
 
 def main() -> int:
     try:
-        auth = os.environ["CASTLERAG_UI_BASIC_AUTH"]
+        auth = os.environ["ALIGNVIEW_UI_BASIC_AUTH"]
     except KeyError:
         sys.stderr.write(
-            "ERROR: CASTLERAG_UI_BASIC_AUTH not set (expected user:password)\n"
+            "ERROR: ALIGNVIEW_UI_BASIC_AUTH not set (expected user:password)\n"
         )
         return 2
     user, _, password = auth.partition(":")

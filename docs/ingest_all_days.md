@@ -5,7 +5,7 @@ This runbook takes days 1 to 4 into the one Qdrant collection
 cameras), using `scripts/slurm/ingest_day.slurm`. Nothing here has been run end
 to end yet; the numbers are estimates.
 
-All commands use `--account=gisr109364`. The account is per user, so run
+All commands use `--account=<account>`. The account is per user, so run
 `accinfo` and use the one it shows for you.
 
 ## 0. Constraints
@@ -20,16 +20,15 @@ All commands use `--account=gisr109364`. The account is per user, so run
 
 ## 1. How the job works
 
-`ingest_day.slurm` is the day-1 fixed-camera job from PR #61 with the day made
-a parameter. `fixedcams_day1.slurm` still exists as a wrapper that runs it with
-`DAY=1`, so the commands in `docs/fixedcams_reingest.md` keep working.
+`ingest_day.slurm` ingests one day, chosen with a parameter. `fixedcams_day1.slurm`
+is a wrapper that runs it with `DAY=1`.
 
 `DAY` is passed with `--export=ALL,DAY=N` (default 1). Everything follows from
 it: the raw video path `castle2024/main/dayN`, the chunk dir
 `castle_derived/chunks/dayN`, every `--day N` flag, the Qdrant counts
 (`--day dayN`), the backup dir name, and the log prefix
 `logs/ingest_dayN_<what>_<job>.log`. The default `HOURS` is `8..20` for days
-1-3 and `8..18` for day 4 (from `src/castlerag/ui/youtube_mirror.csv`).
+1-3 and `8..18` for day 4 (from `src/alignview/ui/youtube_mirror.csv`).
 Directives in `#SBATCH` lines can't see `DAY`, so pass
 `--job-name=castle-ingest-dayN` too. The main log is then
 `logs/castle-ingest-dayN_<job>.out`.
@@ -49,15 +48,15 @@ for embedding) and does, in order:
    It also records sha1 checksums of every chunk file of that day's cameras
    that it is not ingesting. It aborts if the day has points in Qdrant but no
    caches on disk.
-3. `castlerag preprocess --day N --camera C --hour H ... --caption --events`,
+3. `alignview preprocess --day N --camera C --hour H ... --caption --events`,
    about 10 camera x hour-group workers.
 4. Validation gate. Each camera must have at least 98 % of clips captioned,
    events, no corrupt lines, and the right `camera_type`/`room` (fixed:
    `fixed`/`<cam>`; ego: `ego`/none). The other cameras' checksums must be
    unchanged.
-5. `castlerag embed --day N --modality {transcript,event_summary,video}`.
+5. `alignview embed --day N --modality {transcript,event_summary,video}`.
    This is incremental, so it embeds only new record ids.
-6. `castlerag index --day N`, without `--create-collection`. This step
+6. `alignview index --day N`, without `--create-collection`. This step
    upserts the day's points and rebuilds `transcripts.pkl` and
    `visual_text.json` from the chunk records of every day on disk.
 7. Verification. It writes `logs/ingest_dayN_counts_after_<job>.txt` and fails
@@ -96,17 +95,17 @@ with `HOURS=`.
 
 ## 2. One-time setup on the new account
 
-These are the same steps as `docs/snellius.md` §1-2 (venv `~/castlerag_venv`
+These are the same steps as `docs/snellius.md` §1-2 (venv `~/alignview_venv`
 on the 2024 module stack; the jobs use the shared Qdrant binary
-`/projects/prjs2298/bin/qdrant` from `qdrant.binary` in the config, else
+`/projects/<project>/bin/qdrant` from `qdrant.binary` in the config, else
 `~/qdrant/qdrant`). The jobs run with `HF_HUB_OFFLINE=1` and load the models
-from the shared cache `/projects/prjs2298/hf_cache` (`slurm.hf_home` in
-`configs/snellius_project.yaml`; `CASTLERAG_HF_HOME` overrides it for one job,
+from the shared cache `/projects/<project>/hf_cache` (`slurm.hf_home` in
+`configs/snellius_project.yaml`; `ALIGNVIEW_HF_HOME` overrides it for one job,
 while an `HF_HOME` from your shell is ignored). That cache is already filled
 for the group. To refill it, download once on the login node:
 
 ```bash
-export HF_HOME=/projects/prjs2298/hf_cache   # the cache the jobs read
+export HF_HOME=/projects/<project>/hf_cache   # the cache the jobs read
 umask 0007                                   # keep it group read/write
 hf download Qwen/Qwen3-VL-8B-Instruct
 hf download Tevatron/Qwen2.5-Omni-7B-Thinker     # OmniEmbed base
@@ -127,8 +126,8 @@ skip day 1 in §3. Then run `ingest_day.slurm` with `DAY=1` and the default
 ## 3. Wave 1: days 1 and 2
 
 ```bash
-cd ~/code/CastleRAG
-DL=$(sbatch --parsable --account=gisr109364 --export=ALL,DAYS="1 2" scripts/slurm/download_castle.slurm)
+cd ~/code/AlignView
+DL=$(sbatch --parsable --account=<account> --export=ALL,DAYS="1 2" scripts/slurm/download_castle.slurm)
 # ~4.4 TB, roughly 3 h. The ingest chain below waits for $DL (afterok).
 ```
 
@@ -137,8 +136,8 @@ The jobs never run `--aux`, so the `auxiliary/` tree is not needed.
 Submit from the repo root, so that `SLURM_SUBMIT_DIR` is the repo:
 
 ```bash
-cd ~/code/CastleRAG
-A=gisr109364
+cd ~/code/AlignView
+A=<account>
 FIXED="Kitchen Living1 Living2 Meeting Reading"
 EGO_A="Allie Bjorn Cathal Florian Klaus"
 EGO_B="Luca Onanong Stevan Tien Werner"
@@ -182,8 +181,7 @@ tail -n 40 logs/castle-ingest-day1_${D1C}.out
 cat logs/ingest_day1_counts_after_${D1C}.txt     # all 15 cameras with main_clip points
 ```
 
-The 40-question day-1 eval (`smoke_day1_roomfix.slurm`, see
-`docs/fixedcams_reingest.md` §5) works once day 1 is done:
+The 40-question day-1 eval (`smoke_day1_roomfix.slurm`) works once day 1 is done:
 
 ```bash
 sbatch --account=$A --dependency=afterok:$D1C \
@@ -196,8 +194,8 @@ First do §5 for days 1 and 2: archive them, then free the space. Then:
 
 ```bash
 # Same variables as wave 1 (a new login shell won't have them).
-cd ~/code/CastleRAG
-A=gisr109364
+cd ~/code/AlignView
+A=<account>
 FIXED="Kitchen Living1 Living2 Meeting Reading"
 EGO_A="Allie Bjorn Cathal Florian Klaus"
 EGO_B="Luca Onanong Stevan Tien Werner"
@@ -243,8 +241,8 @@ wave:
 
 ```bash
 # login node, while no castle job is running (the Qdrant tar must be consistent)
-DAYS="1 2" bash scripts/archive_bugb.sh        # -> ~/castle_archives/castle_days12_<date>/
-DAYS="1 2 3 4" bash scripts/archive_bugb.sh    # after wave 2
+DAYS="1 2" bash scripts/archive_derived.sh        # -> ~/castle_archives/castle_days12_<date>/
+DAYS="1 2 3 4" bash scripts/archive_derived.sh    # after wave 2
 ```
 
 The script tars the whole `chunks/` tree, the listed days' caches with
@@ -263,7 +261,7 @@ and check that four days of it fit in home (`myquota`). If they don't, keep
 only the newest archive (delete older `~/castle_archives/*` once the new
 `sha256sum -c SHA256SUMS` passes). You can also drop `qdrant_storage.tar`,
 because the index can be rebuilt from the chunks and caches with
-`castlerag index --day N` per day without re-embedding. Old
+`alignview index --day N` per day without re-embedding. Old
 `embeddings_backup_pre_ingest_day*_<job>/` dirs and older Qdrant snapshots can
 go once the next job of the chain has passed.
 
@@ -297,13 +295,13 @@ works, so the job refuses a public repo):
 ```bash
 # once: create the private dataset repo on huggingface.co, then on a login node
 hf auth login                     # write token; the job never handles it
-sbatch --account=gisr109364 --export=ALL,DAY=1 scripts/slurm/upload_artifacts.slurm
+sbatch --account=<account> --export=ALL,DAY=1 scripts/slurm/upload_artifacts.slurm
 ```
 
 Per day it uploads the chunks, the embedding caches and manifest, plus the
 current `transcripts.pkl` and `visual_text.json`. It's resumable: files whose
 content is already on the Hub are skipped.
-Restore = download, untar into `castle_derived/`, `castlerag index --day N`
+Restore = download, untar into `castle_derived/`, `alignview index --day N`
 (CPU only, no re-embedding).
 
 Frames are not uploaded by default. A free HF account has 100 GB of private
@@ -321,8 +319,8 @@ and rebuild:
 ```bash
 python scripts/regen_frames.py --config configs/snellius_fixedcams.yaml --day 1   # dry run: N missing
 # if frames are missing: download the day's video again, then
-DL=$(sbatch --parsable --account=gisr109364 --export=ALL,DAYS="1",AUX=0 scripts/slurm/download_castle.slurm)
-sbatch --account=gisr109364 --dependency=afterok:$DL --export=ALL,DAY=1 scripts/slurm/regen_frames.slurm
+DL=$(sbatch --parsable --account=<account> --export=ALL,DAYS="1",AUX=0 scripts/slurm/download_castle.slurm)
+sbatch --account=<account> --dependency=afterok:$DL --export=ALL,DAY=1 scripts/slurm/regen_frames.slurm
 ```
 
 It re-extracts each clip that lists a missing frame and moves only the listed
@@ -355,7 +353,7 @@ stretches got no event summaries) and missed some test-card clips. To bring
 an ingested day up to the current rule:
 
 ```bash
-cd ~/code/CastleRAG
+cd ~/code/AlignView
 python scripts/reflag_placeholders.py --config configs/snellius_fixedcams.yaml --day 1           # dry run
 python scripts/reflag_placeholders.py --config configs/snellius_fixedcams.yaml --day 1 --apply   # ~1 h CPU, run as a job
 ALL="$FIXED $EGO_A $EGO_B"   # day 4: Bao instead of Tien
@@ -372,14 +370,14 @@ for the >80 % rule. Clips with no frames left keep their old flag.
 
 ### Move to the project space
 
-Since 2026-10-07 the team has a 2 TiB project space, `/projects/prjs2298`,
+Since 2026-10-07 the team has a 2 TiB project space, `/projects/<project>`,
 with no purge. Everything that took GPU time to build belongs there: chunks,
 thinned frames (~100 GB per day), embedding caches and the Qdrant storage. The
 raw video stays on scratch; it can be downloaded again. Access is through the
-Unix group `prjs2298`; if it is denied right after being added, close the
+Unix group `<project>`; if it is denied right after being added, close the
 reused SSH connection (`ssh -O exit snellius`) and log in again.
 
-Every Slurm script takes its paths from its config (`castlerag paths --config
+Every Slurm script takes its paths from its config (`alignview paths --config
 $CONF`). `configs/snellius_fixedcams.yaml` keeps the scratch layout and
 `configs/snellius_project.yaml` the project one. Chunks and Qdrant payloads
 written on scratch store scratch frame paths; the project config's
@@ -391,7 +389,7 @@ on the scratch storage, and the move refuses while other jobs are queued or
 running. It also refuses a `DAYS` that leaves out an ingested day.
 
 ```bash
-cd ~/code/CastleRAG
+cd ~/code/AlignView
 sbatch --account=$A scripts/slurm/move_to_project.slurm    # resumable
 # check the log: frame and file counts must match exactly
 ```

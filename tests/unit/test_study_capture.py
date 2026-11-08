@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from castlerag.study import capture as cap
-from castlerag.ui.youtube import YouTubeMirror
+from alignview.study import capture as cap
+from alignview.ui.youtube import YouTubeMirror
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -56,8 +56,8 @@ def _export() -> dict:
                 "is_refinement": False,
                 "question": "Which brand of kettle is in the kitchen?",
                 "refined_query": None,
-                "answer": "It is a **Samsung** kettle [[cite:m0:Bjorn:12:29]].",
-                "claim": {"text": "Samsung", "support": "partial"},
+                "answer": "It is a **Norvik** kettle [[cite:m0:Bjorn:12:29]].",
+                "claim": {"text": "Norvik", "support": "partial"},
                 "reviews": {},
                 "moments": [
                     {
@@ -75,7 +75,7 @@ def _export() -> dict:
                 "question": "Re-examine",
                 "refined_query": "Re-examine",
                 "answer": "Still four.",
-                "claim": {"text": "Samsung", "support": "supported"},
+                "claim": {"text": "Norvik", "support": "supported"},
                 "moments": [],
             },
         ]
@@ -164,13 +164,13 @@ def test_is_live_badge():
 @pytest.mark.parametrize(
     "answer,truth,expected",
     [
-        ("It is a **Samsung** kettle [[cite:m0:Bjorn:12:29]].", "Samsung", True),
+        ("It is a **Norvik** kettle [[cite:m0:Bjorn:12:29]].", "Norvik", True),
         ("Four candles were lit.", "4", True),
         ("They lit 4 candles.", "4", True),
         ("They lit 14 candles.", "4", False),
-        ("He wanted pancakes on thursday.", "Thursday", True),
+        ("He wanted pancakes on friday.", "Friday", True),
         ("The logo is ACME's.", "ACME", True),
-        ("It was risotto-ish", "Risotto", True),
+        ("It was goulash-ish", "Goulash", True),
         ("Nothing relevant.", "Klaus", False),
         ("anything", "", False),
     ],
@@ -185,7 +185,7 @@ def test_plain_answer_text_renders_citations():
 
 
 def test_build_task_entry(mirror: YouTubeMirror):
-    task = cap.StudyTask(1, "Which brand of kettle is in the kitchen?", "Samsung")
+    task = cap.StudyTask(1, "Which brand of kettle is in the kitchen?", "Norvik")
     entry = cap.build_task_entry(
         task,
         _export(),
@@ -195,8 +195,8 @@ def test_build_task_entry(mirror: YouTubeMirror):
         screenshots=["01_answer.png"],
         verdicts={"Luca": "confirm"},
     )
-    assert entry["answer_text"] == "It is a Samsung kettle Bjorn 12:29."
-    assert entry["claim"] == "Samsung" and entry["support"] == "partial"
+    assert entry["answer_text"] == "It is a Norvik kettle Bjorn 12:29."
+    assert entry["claim"] == "Norvik" and entry["support"] == "partial"
     assert entry["answer_mentions_truth"] is True
     assert entry["answer_mentions_truth_needs_manual_check"] is True
     assert entry["offline_fabricated"] is False
@@ -271,7 +271,7 @@ def test_annotate_image(tmp_path: Path):
 
 def test_layout_ids_exist_in_dashboard():
     pytest.importorskip("dash")
-    from castlerag.ui.layout import build_layout
+    from alignview.ui.layout import build_layout
 
     ids: set = set()
 
@@ -293,7 +293,7 @@ def test_layout_ids_exist_in_dashboard():
 
 def test_mode_badge_text_matches_live_check():
     pytest.importorskip("dash")
-    from castlerag.ui.layout import _top_bar
+    from alignview.ui.layout import _top_bar
 
     def find(node: object):
         if getattr(node, "id", None) == "mode-badge":

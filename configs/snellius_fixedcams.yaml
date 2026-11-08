@@ -1,15 +1,15 @@
-# CastleRAG — Snellius config with the 5 fixed room cameras in scope (#50 Bug B).
+# AlignView — Snellius config with the 5 fixed room cameras in scope.
 #
 # Identical to configs/snellius_me.yaml except `dataset.camera_scope: "all"`.
 # load_config() merges exactly ONE override on top of base.yaml, so this file
 # repeats every snellius_me.yaml key instead of layering on it — keep the two
 # in sync if you change paths/endpoints there.
 #
-# Use it for the additive fixed-camera ingest (docs/fixedcams_reingest.md):
-#   castlerag preprocess --config configs/snellius_fixedcams.yaml --day 1 \
+# Use it for the additive fixed-camera ingest:
+#   alignview preprocess --config configs/snellius_fixedcams.yaml --day 1 \
 #       --camera Kitchen --camera Living1 ...           # fixed cams only
-#   castlerag embed      --config configs/snellius_fixedcams.yaml --day 1
-#   castlerag index      --config configs/snellius_fixedcams.yaml --day 1   # additive
+#   alignview embed      --config configs/snellius_fixedcams.yaml --day 1
+#   alignview index      --config configs/snellius_fixedcams.yaml --day 1   # additive
 # and for every eval / UI run afterwards: an `index` run under the ego-only
 # snellius_me.yaml would rebuild transcripts.pkl (BM25) WITHOUT the fixed-camera
 # transcripts. Dense retrieval itself has no camera-scope filter, so the fixed

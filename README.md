@@ -1,191 +1,130 @@
-# CastleRAG
+# AlignView
 
-Multimodal RAG system for verifiable multiple-choice QA over the CASTLE 2024 dataset,
-targeting the [CASTLE Challenge @ EgoVis 2026](https://castle-challenge.github.io/).
+AlignView is an interactive question-answering system for time-aligned video
+streams. You ask a question about recorded events, it answers, and it shows you
+the footage behind the answer: up to three synchronized cameras at each cited
+moment, with per-camera match scores. You judge each camera (confirm, refine or
+ignore), and those verdicts steer the next round of retrieval until you are
+satisfied with the answer.
 
-## Overview
+The system is built and evaluated on the CASTLE 2024 dataset: four days of
+unscripted activity filmed by cameras worn by the participants and by five fixed
+room cameras.
 
-CastleRAG builds an offline evidence memory from ego-camera video, transcripts,
-and auxiliary sensor data, then answers CASTLE multiple-choice questions using
-a retrieve → rerank → generate pipeline.
+The accompanying paper, *AlignView: Interactive Evidence Verification for
+Question Answering over Time-Aligned Video Streams*, is under review at the
+HIMAS workshop at IUI 2027.
 
-**Key technical decisions (fixed):**
+## How it works
 
-| Component | Choice |
+| Stage | What happens |
 |---|---|
-| Generation / reranking model | `Qwen/Qwen3-VL-8B-Instruct` via vLLM |
-| Ablation baseline | `OpenGVLab/InternVL3-8B` |
-| Retrieval embedding | `Tevatron/OmniEmbed-v0.1-multivent` |
-| Transcript retrieval | Dual-path: BM25 + OmniEmbed dense, merged with RRF |
-| Visual-text retrieval | BM25 over clip captions + OCR + scene graphs (`visual_text.json`), fused into the multimodal RRF pass; weighted per route (`retrieval.visual_text_route_weights`) |
-| Video scope (baseline) | 10 egocentric cameras only |
-| Clip policy | 30 s clips, 30 s stride, 1 fps sampled frames |
-| Evidence budget | Top 50 rows to generator |
+| Preprocessing | Videos are cut into 30-second clips with 1 fps frames; transcripts are grouped into short windows. |
+| Annotation | Qwen3-VL-8B-Instruct (served with vLLM) writes a caption, a scene graph and OCR for each clip, plus two-minute event summaries. |
+| Indexing | OmniEmbed encodes transcripts, captions and summaries into Qdrant; two BM25 indexes cover the transcript and visual text. |
+| Routing | Keyword lists pick a route (visual, speech, temporal or mixed) and detect mentioned days, people and rooms. |
+| Retrieval | Lexical and dense rankings are merged with Reciprocal Rank Fusion, per source and then across sources. |
+| Reranking and answering | Qwen3-VL rates candidate evidence bundles, and the best ones go to the answer generator. |
+| Interface | A Dash web app shows the answer, the cited moments, the synchronized cameras and the review controls. |
 
 ## Setup
 
 ```bash
-git clone <repo>
-cd CastleRAG
+git clone https://github.com/yidakra/AlignView.git
+cd AlignView
 
 python3 -m venv .venv
 source .venv/bin/activate
-
-pip install -e ".[dev]"
+pip install -e ".[dev]"          # core + tests
+pip install -e ".[ui]"           # web interface
+pip install -e ".[inference]"    # GPU inference (vLLM, OmniEmbed)
 ```
 
-For GPU inference (Snellius or local GPU host):
-```bash
-pip install -e ".[inference]"
-```
+Python 3.10 or newer is required.
 
-## Dataset
+## Data
 
-The CASTLE 2024 dataset is available on Hugging Face (`CASTLE-Dataset/CASTLE2024`).
-Download it to `/data/castle2024` (or set `dataset.root` in `configs/base.yaml`).
+The CASTLE 2024 dataset is on Hugging Face (`CASTLE-Dataset/CASTLE2024`).
+Download it and point `dataset.root` in `configs/base.yaml` at it. The expected
+layout is:
 
-Expected layout:
 ```text
-/data/castle2024/
-  main/
-    day{1..4}/
-      {camera}/
-        video/{HH}.mp4
-        transcript/{HH}.json
-        metadata/{HH}.*.csv
-  auxiliary/
-    heartrate/
-    gaze/
-    photo/
-    thermal/
-    video/
+castle2024/
+  main/day{1..4}/{camera}/
+    video/{HH}.mp4
+    transcript/{HH}.json
+    metadata/{HH}.*.csv
+  auxiliary/{heartrate,gaze,photo,thermal,video}/
 ```
 
-## Pipeline commands
+The CASTLE challenge question sets are not public and are not part of this
+repository. `alignview answer` and `alignview eval` read your own questions,
+either as JSON or as a CSV with the columns `Question, Answer, Distractor 1,
+Distractor 2, Distractor 3, Day` (see `src/alignview/eval/io.py`).
+
+## Pipeline
 
 ```bash
-# Base preprocessing — windowing, 1 fps frames, transcript normalization (CPU)
-castlerag preprocess --snellius --day 1
+# Clips, frames and transcript windows (CPU)
+alignview preprocess --day 1
 
-# Per-clip caption + OCR (GPU, requires VLLM_BASE_URL)
+# Captions + OCR, then event summaries (GPU, needs a vLLM endpoint)
 export VLLM_BASE_URL=http://localhost:8000/v1
-castlerag preprocess --caption --snellius --day 1
+alignview preprocess --caption --day 1
+alignview preprocess --events --day 1
 
-# Compress 4-clip groups into 2-minute event summaries (GPU)
-castlerag preprocess --events --snellius --day 1
+# Auxiliary modalities: photo, thermal, video (CPU)
+alignview preprocess --aux
 
-# Normalize auxiliary modalities — photo, thermal, video (CPU)
-castlerag preprocess --aux --snellius
+# Embeddings (GPU)
+alignview embed --modality transcript --day 1
+alignview embed --modality video --day 1
 
-# Encode derived chunks with OmniEmbed (GPU)
-castlerag embed --snellius --modality transcript --day 1
-castlerag embed --snellius --modality video --day 1
+# Qdrant collection + BM25 indexes
+alignview index --create-collection
+alignview index --lexical-only     # rebuild only the BM25 indexes
 
-# Create Qdrant collection and upsert evidence points. Also (re)builds the two
-# CPU BM25 pickles next to the embedding caches: transcripts.pkl (speech) and
-# visual_text.json (clip captions + OCR + scene graphs; event summaries +
-# aggregated OCR). The visual-text lane is optional at query time — retrieval
-# is unchanged until the pickle exists.
-castlerag index --snellius --create-collection
-
-# Existing deployment: build just the BM25 pickles from the chunk records.
-# No vLLM, no Qdrant, no re-annotation; picks up the visual-text lane.
-castlerag index --snellius --lexical-only
-
-# Run full pipeline on CASTLE questions
-castlerag answer questions.json --snellius
-
-# Evaluate predictions against ground truth
-castlerag eval questions.json predictions.json --answers ground_truth.json
-
-# 5-question smoke test against a live vLLM endpoint
-castlerag smoke-test questions.json --n 5
+# Answer and evaluate
+alignview answer questions.csv --out predictions.json
+alignview eval questions.csv predictions.json
 ```
 
-## Local offline smoke test
+Add `--config path/to/config.yaml` to any command to override settings; config
+files are deep-merged on top of `configs/base.yaml`.
 
-Verify pipeline wiring without any models or running services:
+To check that everything is wired up without models or services:
 
 ```bash
 python scripts/smoke_local.py
 ```
 
-Uses in-memory Qdrant, random-vector embeddings, and a stub LLM to confirm all
-code paths connect end-to-end. Exit 0 = all 5 synthetic questions produce a
-valid `a|b|c|d` prediction.
+It uses an in-memory Qdrant, random embeddings and a stub LLM, and exits 0 when
+all synthetic questions get a valid prediction.
 
-With a real local model endpoint (Ollama, llama.cpp, local vLLM):
-
-```bash
-VLLM_BASE_URL=http://localhost:11434/v1 python scripts/smoke_local.py --real
-```
-
-## Running on Snellius
-
-See [docs/snellius.md](docs/snellius.md) for the full end-to-end setup
-guide (account, venv, dataset download, vLLM servers, SLURM chain, and
-incremental ingest with `--day N`).  For ingesting days 1-4 with every
-camera on `/scratch-shared` (`--account=gisr109364`; the account is per user,
-`accinfo` shows yours), follow [docs/ingest_all_days.md](docs/ingest_all_days.md).
-The TL;DR for the generic SLURM chain:
-
-Edit `configs/snellius.yaml` to set your account and scratch paths, then:
+## Interface
 
 ```bash
-# Submit in dependency order (replace <job_id> with the id returned by sbatch):
-
-# 1. Base preprocessing — windowing, 1 fps frames, transcript normalization (CPU)
-JOB1=$(sbatch --parsable scripts/slurm/preprocess_main.slurm)
-
-# 2a. Per-clip caption + OCR — array job, one task per day (GPU, needs VLLM_BASE_URL)
-export VLLM_BASE_URL=http://<vllm-host>:8000/v1
-JOB2=$(sbatch --parsable --dependency=afterok:${JOB1} scripts/slurm/caption_ocr.slurm)
-
-# 2b. Auxiliary modality normalization — runs in parallel with caption_ocr (CPU)
-JOB2B=$(sbatch --parsable --dependency=afterok:${JOB1} scripts/slurm/preprocess_aux.slurm)
-
-# 3. Event compression — depends on caption_ocr (GPU, needs VLLM_BASE_URL)
-JOB3=$(sbatch --parsable --dependency=afterok:${JOB2} scripts/slurm/compress_events.slurm)
-
-# 4. Embedding and indexing
-sbatch --dependency=afterok:${JOB3} scripts/slurm/index_transcripts.slurm
-sbatch --dependency=afterok:${JOB3} scripts/slurm/embed_text.slurm
-sbatch --dependency=afterok:${JOB3} scripts/slurm/embed_video.slurm
-sbatch --dependency=afterok:${JOB3} scripts/slurm/embed_images.slurm
-sbatch --dependency=afterok:${JOB3} scripts/slurm/index_qdrant.slurm
+alignview ui                     # http://127.0.0.1:8050
 ```
 
-Estimated cost: ~EUR 115–204 for the full ego-only evidence build
-(60–106 GPU-hours × 128 SBU/h × EUR 15/1000 SBU; see `SPEC.md §3.5`).
+Without a running index the interface uses an offline placeholder engine, so you
+can try it with no models, Qdrant or vLLM. Evidence videos play from the public
+YouTube mirror of CASTLE; the mapping is in
+`src/alignview/ui/youtube_mirror.csv`. See
+[`src/alignview/ui/README.md`](src/alignview/ui/README.md) for details.
 
-## UI (dashboard)
+## Running on an HPC cluster
 
-A Dash dashboard — chat + YouTube evidence embeds + Plotly analytics — runs end
-to end on an offline placeholder engine, with no RAG, models, Qdrant, or vLLM:
-
-```bash
-pip install -e ".[ui]"
-castlerag ui              # http://127.0.0.1:8050
-```
-
-The real pipeline drops in later behind the `ChatEngine` protocol. The YouTube
-mirror mapping lives in `src/castlerag/ui/youtube_mirror.csv`
-(`day,camera,hour,video_id`, 666 rows generated from the official CASTLE
-viewer's `videos.json`). See [`src/castlerag/ui/README.md`](src/castlerag/ui/README.md).
+The `scripts/slurm/` directory holds the SLURM jobs we used on the Snellius
+supercomputer, and [docs/snellius.md](docs/snellius.md) walks through the full
+setup: environment, dataset download, vLLM servers, the job chain and
+incremental ingest with `--day N`. [docs/ingest_all_days.md](docs/ingest_all_days.md)
+covers ingesting all four days with every camera, and
+[docs/demo.md](docs/demo.md) covers running the live interface. Set your own
+account and storage paths in `configs/snellius.yaml` before submitting jobs.
 
 ## Tests
 
 ```bash
 pytest
 ```
-
-## Configuration
-
-- `configs/base.yaml` — local development defaults
-- `configs/snellius.yaml` — Snellius HPC overrides (deep-merged on top of base)
-
-Override any field via `--config path/to/custom.yaml`.
-
-## Spec
-
-See `SPEC.md` for the full technical specification.

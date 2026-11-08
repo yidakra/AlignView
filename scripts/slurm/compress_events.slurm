@@ -4,7 +4,7 @@
 # Array: one job per day (1–4).
 # Depends on: caption_ocr.slurm completing successfully.
 #
-# Estimated GPU cost: 8–16 GPU-hours total (see SPEC §3.5).
+# Estimated GPU cost: 8–16 GPU-hours total.
 #
 # Usage:
 #   sbatch --account=<account> --dependency=afterok:<caption_ocr_job_id> \
@@ -26,7 +26,7 @@ set -euo pipefail
 
 DAY="${SLURM_ARRAY_TASK_ID}"
 CONFIG="${CONFIG:-configs/snellius.yaml}"
-VENV="${VENV:-${HOME}/castlerag_venv}"
+VENV="${VENV:-${HOME}/alignview_venv}"
 
 echo "[compress_events] day=${DAY}  host=$(hostname)  start=$(date -Iseconds)"
 
@@ -39,6 +39,6 @@ if [[ -z "${VLLM_BASE_URL:-}" ]]; then
   exit 1
 fi
 
-castlerag preprocess --events --config "${CONFIG}" --day "${DAY}"
+alignview preprocess --events --config "${CONFIG}" --day "${DAY}"
 
 echo "[compress_events] done  day=${DAY}  end=$(date -Iseconds)"

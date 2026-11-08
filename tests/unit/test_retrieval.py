@@ -7,22 +7,22 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from castlerag.retrieval.candidate_expand import _collect_frame_paths
-from castlerag.retrieval.filters import build_filter
-from castlerag.retrieval.search import (
+from alignview.retrieval.candidate_expand import _collect_frame_paths
+from alignview.retrieval.filters import build_filter
+from alignview.retrieval.search import (
     _collapse_hits,
     _dense_search,
     _query_variants,
     reciprocal_rank_fusion,
     retrieve,
 )
-from castlerag.retrieval.transcript_lexical import score_windows
-from castlerag.routing.question_router import (
+from alignview.retrieval.transcript_lexical import score_windows
+from alignview.routing.question_router import (
     RouteEvidenceProfile,
     RouteHints,
     route_question,
 )
-from castlerag.schemas import (
+from alignview.schemas import (
     EvalQuestion,
     RetrievalHit,
     TranscriptSegment,
@@ -274,7 +274,7 @@ def test_retrieve_fuses_transcript_and_multimodal_hits():
 def test_retrieve_excludes_rejected_cameras_from_bm25_lane():
     # Regression: dense lanes hard-exclude via must_not server-side, but the
     # BM25 transcript lane is fused locally — excluded cameras must be dropped
-    # there too, or they leak back through RRF (PR #56 review finding).
+    # there too, or they leak back through RRF.
     class FakeBM25:
         def get_scores(self, tokens: list[str]) -> np.ndarray:
             return np.asarray([3.0, 1.0], dtype=np.float32)
@@ -619,7 +619,7 @@ def test_route_priority_fallback_for_unknown_source_type():
 
 
 def test_retrieve_does_not_hard_filter_dense_search_by_room():
-    """Regression for issue #50: the router's room hint must not become a hard
+    """Regression: the router's room hint must not become a hard
     Qdrant filter. Ego clips/windows carry room=None (only fixed cameras set
     it), so filtering dense retrieval by hints.room zeroes out all ego evidence
     in ego scope. Room must stay a soft signal (BM25 + reranker) only."""
@@ -645,7 +645,7 @@ def test_retrieve_does_not_hard_filter_dense_search_by_room():
     question = EvalQuestion(
         question_id="q_fridge",
         query="Which brand of kettle is in the kitchen?",
-        answers={"a": "Samsung", "b": "Whirlpool", "c": "Bosch", "d": "Liebherr"},
+        answers={"a": "Norvik", "b": "Kelmar", "c": "Brema", "d": "Frostal"},
     )
     hints = route_question(question.query, question.answers)
     # The router DID extract the room hint...
@@ -774,7 +774,7 @@ def test_dense_search_leaves_caption_fields_none_when_payload_lacks_them():
 
 # ---------------------------------------------------------------------------
 # _collapse_hits — separate clip / event-summary budgets and the clip floor
-# (issue #50: visual evidence retrieved but lost at collapse time)
+# (visual evidence retrieved but lost at collapse time)
 # ---------------------------------------------------------------------------
 
 
@@ -904,7 +904,7 @@ def test_collapse_hits_defaults_when_config_lacks_new_keys():
 def test_collect_frame_descriptions_caps_described_clips():
     from types import SimpleNamespace
 
-    from castlerag.retrieval.candidate_expand import (
+    from alignview.retrieval.candidate_expand import (
         MAX_DESCRIBED_CLIPS,
         _collect_frame_descriptions,
     )
@@ -929,7 +929,7 @@ def test_collect_frame_descriptions_caps_described_clips():
 def test_collect_frame_descriptions_cap_counts_only_described_clips():
     from types import SimpleNamespace
 
-    from castlerag.retrieval.candidate_expand import (
+    from alignview.retrieval.candidate_expand import (
         MAX_DESCRIBED_CLIPS,
         _collect_frame_descriptions,
     )
@@ -961,7 +961,7 @@ def test_collect_frame_descriptions_cap_counts_only_described_clips():
 def test_collect_frame_paths_shares_budget_and_samples_each_row_evenly():
     from types import SimpleNamespace
 
-    from castlerag.retrieval.candidate_expand import _collect_frame_paths
+    from alignview.retrieval.candidate_expand import _collect_frame_paths
 
     rows = [
         SimpleNamespace(sampled_frame_paths=[f"/c{r}/{i:02d}.jpg" for i in range(30)])
@@ -982,7 +982,7 @@ def test_collect_frame_paths_shares_budget_and_samples_each_row_evenly():
 def test_collect_frame_paths_redistributes_unused_row_share():
     from types import SimpleNamespace
 
-    from castlerag.retrieval.candidate_expand import _collect_frame_paths
+    from alignview.retrieval.candidate_expand import _collect_frame_paths
 
     short = SimpleNamespace(sampled_frame_paths=["/a/00.jpg"])
     long = SimpleNamespace(sampled_frame_paths=[f"/b/{i:02d}.jpg" for i in range(30)])

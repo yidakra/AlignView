@@ -1,4 +1,4 @@
-"""Fixed room-camera ingest + retrieval (issue #50 Bug B).
+"""Fixed room-camera ingest + retrieval .
 
 Covers the pieces needed to add the 5 fixed cameras to an existing ego-only
 day-1 collection: camera scoping for preprocess, incremental embedding caches,
@@ -15,23 +15,23 @@ import numpy as np
 import pytest
 from typer.testing import CliRunner
 
-from castlerag.cli import app, iter_scoped_clip_paths
-from castlerag.config import CastleRAGConfig, load_config
-from castlerag.dataset.layout import discover_hours, scoped_cameras
-from castlerag.index.io import load_embedding_cache, write_embedding_cache
-from castlerag.index.pipeline import (
+from alignview.cli import app, iter_scoped_clip_paths
+from alignview.config import AlignViewConfig, load_config
+from alignview.dataset.layout import discover_hours, scoped_cameras
+from alignview.index.io import load_embedding_cache, write_embedding_cache
+from alignview.index.pipeline import (
     build_qdrant_index,
     cache_dense_embeddings,
     load_chunk_records,
     load_dense_caches,
 )
-from castlerag.index.qdrant import record_to_qdrant_point
-from castlerag.rerank.llm_reranker import format_candidate_pack
-from castlerag.retrieval.filters import build_filter
-from castlerag.retrieval.search import _dense_search
-from castlerag.routing.question_router import route_question
-from castlerag.schemas import ClipRecord, EvidencePack, RetrievalHit
-from castlerag.ui.rag_engine import padding_roster
+from alignview.index.qdrant import record_to_qdrant_point
+from alignview.rerank.llm_reranker import format_candidate_pack
+from alignview.retrieval.filters import build_filter
+from alignview.retrieval.search import _dense_search
+from alignview.routing.question_router import route_question
+from alignview.schemas import ClipRecord, EvidencePack, RetrievalHit
+from alignview.ui.rag_engine import padding_roster
 
 REPO = Path(__file__).resolve().parents[2]
 EGO = ["Allie", "Bjorn"]
@@ -62,8 +62,8 @@ def _clip(camera_id: str, idx: int = 0, *, fixed: bool = False) -> ClipRecord:
     )
 
 
-def _cfg(tmp_path: Path, scope: str = "ego") -> CastleRAGConfig:
-    return CastleRAGConfig.model_validate(
+def _cfg(tmp_path: Path, scope: str = "ego") -> AlignViewConfig:
+    return AlignViewConfig.model_validate(
         {
             "dataset": {
                 "ego_cameras": EGO,
@@ -180,8 +180,8 @@ def test_preprocess_caption_touches_only_requested_camera_and_hour(
     tmp_path: Path, monkeypatch
 ):
     """--skip-base --caption --camera X --hour H rewrites only X/H clips.jsonl."""
-    from castlerag.index.io import load_clip_records, write_jsonl_records
-    from castlerag.preprocess import caption_ocr
+    from alignview.index.io import load_clip_records, write_jsonl_records
+    from alignview.preprocess import caption_ocr
 
     chunks = tmp_path / "chunks"
     for cam, fixed in (("Allie", False), ("Reading", True)):
@@ -429,11 +429,11 @@ class _NoPointsQdrant:
 def _capture_index(monkeypatch) -> list[dict]:
     upserts: list[dict] = []
     monkeypatch.setattr(
-        "castlerag.index.pipeline.bootstrap_collection",
+        "alignview.index.pipeline.bootstrap_collection",
         lambda **kwargs: _NoPointsQdrant(),
     )
     monkeypatch.setattr(
-        "castlerag.index.pipeline.upsert_batch",
+        "alignview.index.pipeline.upsert_batch",
         lambda **kwargs: upserts.append(kwargs),
     )
     return upserts
@@ -606,8 +606,8 @@ def test_padding_roster_adds_fixed_cameras_only_in_all_scope():
 
 
 def _run_retrieve(question_text: str, known_participants, windows=()):
-    from castlerag.retrieval.search import retrieve
-    from castlerag.schemas import EvalQuestion
+    from alignview.retrieval.search import retrieve
+    from alignview.schemas import EvalQuestion
 
     calls: list = []
 
@@ -787,8 +787,8 @@ def test_preprocess_caption_keeps_a_clip_whose_captioning_fails(
     tmp_path: Path, monkeypatch
 ):
     """A failed captioning call leaves the clip in clips.jsonl, uncaptioned."""
-    from castlerag.index.io import load_clip_records, write_jsonl_records
-    from castlerag.preprocess import caption_ocr
+    from alignview.index.io import load_clip_records, write_jsonl_records
+    from alignview.preprocess import caption_ocr
 
     chunks = tmp_path / "chunks"
     path = chunks / "day1" / "Allie" / "08" / "clips.jsonl"

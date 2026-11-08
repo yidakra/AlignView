@@ -1,14 +1,14 @@
-"""Tests for src/castlerag/config.py"""
+"""Tests for src/alignview/config.py"""
 
 from pathlib import Path
 
 import pytest
 
-from castlerag.config import CastleRAGConfig, _deep_merge, load_config
+from alignview.config import AlignViewConfig, _deep_merge, load_config
 
 
 def test_default_config_is_valid():
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     assert cfg.preprocessing.clip_seconds == 30
     assert cfg.preprocessing.stride_seconds == 30
     assert cfg.preprocessing.fps == 1
@@ -21,7 +21,7 @@ def test_default_config_is_valid():
 
 
 def test_default_ego_cameras():
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     assert len(cfg.dataset.ego_cameras) == 11
     assert "Allie" in cfg.dataset.ego_cameras
     assert "Cathal" in cfg.dataset.ego_cameras
@@ -30,7 +30,7 @@ def test_default_ego_cameras():
 
 
 def test_evidence_budget_defaults():
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     assert cfg.retrieval.transcript_top_k == 30
     assert cfg.retrieval.max_candidate_videos == 4
     assert cfg.retrieval.max_event_summaries == 4
@@ -41,13 +41,13 @@ def test_evidence_budget_defaults():
 
 
 def test_reranking_gate_defaults_and_per_route_override():
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     assert cfg.reranking.min_relevance == 1
     assert cfg.reranking.keep_gate_max_relevance == 1
     assert cfg.reranking.min_relevance_by_route == {}
     assert cfg.reranking.min_relevance_for("static_visual") == 1
 
-    cfg = CastleRAGConfig.model_validate(
+    cfg = AlignViewConfig.model_validate(
         {
             "reranking": {
                 "min_relevance": 1,
@@ -69,23 +69,23 @@ def test_base_yaml_documents_new_retrieval_and_reranking_keys():
 
 
 def test_reranking_weights_sum_to_one():
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     total = cfg.reranking.relevance_weight + cfg.reranking.support_weight
     assert abs(total - 1.0) < 1e-9
 
 
 def test_generation_and_reranking_use_same_model():
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     assert cfg.generation.model == cfg.reranking.model
 
 
 def test_ablation_model_set():
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     assert "InternVL3" in cfg.generation.ablation_model
 
 
 def test_lora_blocked_by_default():
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     assert cfg.lora.enabled is False, "LoRA must stay blocked until QA split is found"
 
 
@@ -143,7 +143,7 @@ def test_expand_env_vars(tmp_path: Path):
     """$VAR references in YAML values must be expanded after load."""
     import os
 
-    from castlerag.config import _expand_env
+    from alignview.config import _expand_env
 
     os.environ["_CR_TEST_VAR"] = "expanded_value"
     result = _expand_env({"path": "/scratch/$_CR_TEST_VAR/data"})
@@ -152,14 +152,14 @@ def test_expand_env_vars(tmp_path: Path):
 
 def test_min_relevance_by_route_rejects_unknown_route_and_bad_values():
     with pytest.raises(ValueError, match="unknown route"):
-        CastleRAGConfig.model_validate(
+        AlignViewConfig.model_validate(
             {"reranking": {"min_relevance_by_route": {"visual": 0}}}
         )
     with pytest.raises(ValueError, match="within 0-4"):
-        CastleRAGConfig.model_validate(
+        AlignViewConfig.model_validate(
             {"reranking": {"min_relevance_by_route": {"static_visual": 5}}}
         )
-    cfg = CastleRAGConfig.model_validate(
+    cfg = AlignViewConfig.model_validate(
         {"reranking": {"min_relevance_by_route": {"static_visual": 0, "mixed": 2}}}
     )
     assert cfg.reranking.min_relevance_for("mixed") == 2
@@ -177,4 +177,4 @@ def test_min_relevance_by_route_rejects_unknown_route_and_bad_values():
 )
 def test_budget_and_gate_knobs_reject_out_of_range_values(section, key, value):
     with pytest.raises(ValueError):
-        CastleRAGConfig.model_validate({section: {key: value}})
+        AlignViewConfig.model_validate({section: {key: value}})
