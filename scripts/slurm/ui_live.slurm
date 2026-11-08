@@ -204,12 +204,16 @@ if [ -n "${NGROK_DOMAIN:-}" ]; then
     castlerag ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" &
     UI_PID=$!
     trap 'kill $EMB_PID $GEN_PID $QPID $UI_PID ${NG_PID:-} 2>/dev/null; qdrant_unlock' EXIT
+    UI_UP=0
     for i in $(seq 1 90); do
         curl -sf -u "${CASTLERAG_UI_BASIC_AUTH}" "http://localhost:${UI_PORT}/" >/dev/null 2>&1 \
-            && { echo "[ui] dashboard ready ($((i*2))s)"; break; }
+            && { echo "[ui] dashboard ready ($((i*2))s)"; UI_UP=1; break; }
         kill -0 "$UI_PID" 2>/dev/null || { echo "[ui] ERROR: UI process died"; exit 1; }
         sleep 2
     done
+    if [ "${UI_UP}" != 1 ]; then
+        echo "[ui] ERROR: dashboard not ready after 180s; not opening the tunnel."; exit 1
+    fi
     NG_LOG="logs/ui_ngrok_${SLURM_JOB_ID}.log"
     "${NGBIN}" http "${UI_PORT}" --url "https://${NGROK_DOMAIN#https://}" \
         --log stdout --log-format logfmt > "${NG_LOG}" 2>&1 &
