@@ -116,7 +116,7 @@ def test_day_ordinal_alone_sets_no_temporal_cue():
         ("Who was the second person to present slides at the workshop on the first day?", "day1"),  # noqa: E501
         ("Who gave the first talk at the meeting on the first day?", "day1"),
         ("Who shuffled first in the first game of cards?", None),
-        ("What time did Allie and Linh plan to go for a walk on Saturday at first?", None),
+        ("What time did Allie and Linh plan to walk on Saturday at first?", None),
         ("What was the last topic in the evening discussion?", None),
         ("On the first day, what did Allie say before entering the kitchen?", "day1"),
         ("What did Bjorn do right after breakfast on day 2?", "day2"),

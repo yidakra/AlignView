@@ -256,10 +256,10 @@ def test_score_visual_docs_answer_option_overlap_breaks_caption_ties(tmp_path: P
     # Same caption on both clips; only the on-screen text differs. The clip
     # whose OCR carries one of the answer options must win.
     clips = [
-        _clip("c_lg", camera_id="Bjorn", caption="a person opens the fridge", ocr="LG"),
+        _clip("c_lg", camera_id="Bjorn", caption="a person fills the kettle", ocr="LG"),
         _clip(
             "c_samsung",
-            caption="a person opens the fridge",
+            caption="a person fills the kettle",
             ocr="SAMSUNG",
             offset_ms=60_000,  # later start: loses the tie-break without OCR
         ),
