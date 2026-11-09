@@ -32,6 +32,34 @@ CONF="${CONF:-configs/snellius_project.yaml}"   # index + derived data in /proje
 SC="/scratch-shared/${USER}"
 COLL="castle_multimodal_v1"
 UI_PORT="${UI_PORT:-8050}"
+
+# Trim the basic-auth credentials the same way the UI does, so whitespace-only
+# credentials count as unset (the UI would install no auth gate for them) and
+# the readiness probe sends exactly what the UI checks.
+CASTLERAG_UI_BASIC_AUTH="$(printf '%s' "${CASTLERAG_UI_BASIC_AUTH:-}" \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+export CASTLERAG_UI_BASIC_AUTH
+
+# Check the credentials before any GPU service starts. A public tunnel needs
+# them, and the UI refuses a value without a non-empty user and password.
+_auth="${CASTLERAG_UI_BASIC_AUTH}"
+if [ -z "${_auth}" ]; then
+    if [ -n "${NGROK_DOMAIN:-}" ] || [ "${PUBLIC_TUNNEL:-0}" = "1" ]; then
+        echo "[ui] ABORT: a public tunnel needs CASTLERAG_UI_BASIC_AUTH=user:password."
+        exit 2
+    fi
+elif [[ "${_auth}" != *:* ]] || [ -z "${_auth%%:*}" ] || [ -z "${_auth#*:}" ]; then
+    echo "[ui] ABORT: CASTLERAG_UI_BASIC_AUTH must be user:password with both parts non-empty."
+    exit 2
+fi
+unset _auth
+
+# If something already answers on UI_PORT, the readiness probe below could
+# succeed against it and a tunnel would publish the wrong service.
+if curl -s -o /dev/null --connect-timeout 2 --max-time 5 "http://localhost:${UI_PORT}/"; then
+    echo "[ui] ABORT: port ${UI_PORT} is already in use on $(hostname); set UI_PORT=..."
+    exit 2
+fi
 export HF_HUB_OFFLINE=1
 export HF_HUB_DISABLE_TELEMETRY=1
 export VLLM_LOGGING_LEVEL=WARNING
@@ -118,6 +146,26 @@ if [ -n "${CASTLERAG_STUDY_LOG:-}" ]; then
     echo "[ui] study interaction log -> ${CASTLERAG_STUDY_LOG}"
 fi
 
+# wait_ui_ready: poll the dashboard until it answers (with the basic-auth
+# credentials when set). Each request is bounded, and so is the whole wait.
+# Returns 1 if the UI dies or is not ready after 180 s, so no tunnel opens.
+wait_ui_ready() {
+    local deadline=$((SECONDS + 180))
+    local auth=()
+    if [ -n "${CASTLERAG_UI_BASIC_AUTH}" ]; then auth=(-u "${CASTLERAG_UI_BASIC_AUTH}"); fi
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if curl -sf --connect-timeout 2 --max-time 5 ${auth[@]+"${auth[@]}"} \
+                "http://localhost:${UI_PORT}/" >/dev/null 2>&1; then
+            echo "[ui] dashboard ready"
+            return 0
+        fi
+        kill -0 "$UI_PID" 2>/dev/null || { echo "[ui] ERROR: UI process died"; return 1; }
+        sleep 2
+    done
+    echo "[ui] ERROR: dashboard not ready after 180 s; not opening a tunnel."
+    return 1
+}
+
 NODE="$(hostname)"
 cat <<EOF
 
@@ -137,6 +185,8 @@ EOF
 #   NAMED_TUNNEL_TOKEN set -> run a pre-created Cloudflare *named* tunnel: stable
 #       hostname + Cloudflare Access (email allowlist), both configured once in
 #       the Zero Trust dashboard. Best for a scheduled demo. Takes precedence.
+#   NGROK_DOMAIN set       -> ngrok agent on that reserved domain (free plan
+#       includes one) + HTTP basic auth. Same URL every run, no own domain needed.
 #   PUBLIC_TUNNEL=1        -> ephemeral quick tunnel + HTTP basic auth.
 #   (neither)              -> SSH-tunnel only (default; UI bound 0.0.0.0).
 
@@ -150,17 +200,7 @@ if [ -n "${NAMED_TUNNEL_TOKEN:-}" ]; then
     castlerag ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" &
     UI_PID=$!
     trap 'kill $EMB_PID $GEN_PID $QPID $UI_PID ${CF_PID:-} 2>/dev/null; qdrant_unlock' EXIT
-    for i in $(seq 1 90); do
-        if [ -n "${CASTLERAG_UI_BASIC_AUTH:-}" ]; then
-            curl -sf -u "${CASTLERAG_UI_BASIC_AUTH}" "http://localhost:${UI_PORT}/" \
-                >/dev/null 2>&1 && { echo "[ui] dashboard ready ($((i*2))s)"; break; }
-        else
-            curl -sf "http://localhost:${UI_PORT}/" >/dev/null 2>&1 \
-                && { echo "[ui] dashboard ready ($((i*2))s)"; break; }
-        fi
-        kill -0 "$UI_PID" 2>/dev/null || { echo "[ui] ERROR: UI process died"; exit 1; }
-        sleep 2
-    done
+    wait_ui_ready || exit 1
     # --protocol http2: compute nodes firewall QUIC/UDP-7844; TCP/443 reaches edge.
     CF_LOG="logs/ui_cloudflared_${SLURM_JOB_ID}.log"
     "${CFBIN}" tunnel --no-autoupdate --protocol http2 run --token "${NAMED_TUNNEL_TOKEN}" \
@@ -182,6 +222,58 @@ if [ -n "${NAMED_TUNNEL_TOKEN:-}" ]; then
 
 EOF
     wait "$UI_PID"
+    exit 0
+fi
+
+# --- ngrok static domain + basic auth: the same public URL on every run. ---
+# The authtoken comes from the agent's own config (`~/ngrok config add-authtoken`)
+# or NGROK_AUTHTOKEN; it is never passed on the command line.
+if [ -n "${NGROK_DOMAIN:-}" ]; then
+    if [ -z "${CASTLERAG_UI_BASIC_AUTH:-}" ]; then
+        echo "[ui] ABORT: NGROK_DOMAIN needs CASTLERAG_UI_BASIC_AUTH=user:pass"
+        echo "[ui]        (refusing to expose the live backend with no auth)."
+        exit 2
+    fi
+    NGBIN="${NGROK:-${HOME}/ngrok}"
+    if [ ! -x "${NGBIN}" ]; then
+        echo "[ui] ABORT: ngrok not found/executable at ${NGBIN} (set NGROK=...)."
+        exit 2
+    fi
+    castlerag ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}" &
+    UI_PID=$!
+    trap 'kill $EMB_PID $GEN_PID $QPID $UI_PID ${NG_PID:-} 2>/dev/null; qdrant_unlock' EXIT
+    wait_ui_ready || exit 1
+    NG_LOG="logs/ui_ngrok_${SLURM_JOB_ID}.log"
+    "${NGBIN}" http "${UI_PORT}" --url "https://${NGROK_DOMAIN#https://}" \
+        --log stdout --log-format logfmt > "${NG_LOG}" 2>&1 &
+    NG_PID=$!
+    NG_UP=0
+    for i in $(seq 1 30); do
+        grep -q 'msg="started tunnel"' "${NG_LOG}" 2>/dev/null && { NG_UP=1; break; }
+        kill -0 "$NG_PID" 2>/dev/null || break
+        sleep 2
+    done
+    if [ "${NG_UP}" != 1 ]; then
+        echo "[ui] ERROR: ngrok tunnel did not start; log:"; tail -20 "${NG_LOG}"; exit 1
+    fi
+    cat <<EOF
+
+[ui] ============================================================
+[ui]  PUBLIC DEMO URL : https://${NGROK_DOMAIN#https://}
+[ui]  basic-auth user : ${CASTLERAG_UI_BASIC_AUTH%%:*}  (share the password out-of-band)
+[ui]  Same URL every run. scancel ${SLURM_JOB_ID} to tear it down.
+[ui]  Free plan: first visit shows ngrok's one-time warning page; click "Visit Site".
+[ui] ============================================================
+
+EOF
+    # Stop the job if the tunnel or the UI exits, so a dead public link does not
+    # keep holding the GPUs.
+    while kill -0 "$UI_PID" 2>/dev/null && kill -0 "$NG_PID" 2>/dev/null; do sleep 10; done
+    if ! kill -0 "$NG_PID" 2>/dev/null; then
+        echo "[ui] ERROR: ngrok tunnel exited; stopping the job. log:"; tail -20 "${NG_LOG}"; exit 1
+    fi
+    echo "[ui] UI process exited; stopping the job."
+    wait "$UI_PID" || exit 1
     exit 0
 fi
 
@@ -209,13 +301,8 @@ castlerag ui --host 0.0.0.0 --port "${UI_PORT}" --require-live --config "${CONF}
 UI_PID=$!
 trap 'kill $EMB_PID $GEN_PID $QPID $UI_PID ${CF_PID:-} 2>/dev/null; qdrant_unlock' EXIT
 
-# Readiness check must send the basic-auth creds (every route is gated now).
-for i in $(seq 1 90); do
-    curl -sf -u "${CASTLERAG_UI_BASIC_AUTH}" "http://localhost:${UI_PORT}/" >/dev/null 2>&1 \
-        && { echo "[ui] dashboard ready ($((i*2))s)"; break; }
-    kill -0 "$UI_PID" 2>/dev/null || { echo "[ui] ERROR: UI process died"; exit 1; }
-    sleep 2
-done
+# Readiness check sends the basic-auth creds (every route is gated).
+wait_ui_ready || exit 1
 
 # --protocol http2: compute nodes firewall QUIC/UDP-7844; TCP/443 reaches the edge.
 CF_LOG="logs/ui_cloudflared_${SLURM_JOB_ID}.log"
