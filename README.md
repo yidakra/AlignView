@@ -128,3 +128,7 @@ account and storage paths in `configs/snellius.yaml` before submitting jobs.
 ```bash
 pytest
 ```
+
+## License
+
+MIT; see [LICENSE](LICENSE). The CASTLE 2024 dataset has its own terms of use.
