@@ -23,7 +23,7 @@ set -euo pipefail
 
 DAY="${SLURM_ARRAY_TASK_ID}"
 CONFIG="${CONFIG:-configs/snellius.yaml}"
-VENV="${VENV:-${HOME}/castlerag_venv}"
+VENV="${VENV:-${HOME}/alignview_venv}"
 
 echo "[preprocess_main] day=${DAY}  host=$(hostname)  start=$(date -Iseconds)"
 
@@ -33,7 +33,7 @@ source "${VENV}/bin/activate"
 
 mkdir -p logs
 
-castlerag preprocess \
+alignview preprocess \
     --config "${CONFIG}" \
     --day "${DAY}"
 

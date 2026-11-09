@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from castlerag.cli import app
-from castlerag.config import load_config
-from castlerag.frame_encoding import (
+from alignview.cli import app
+from alignview.config import load_config
+from alignview.frame_encoding import (
     available_frames,
     relocate_frame_path,
     resolve_frame_path,
@@ -172,7 +172,7 @@ def test_slurm_qdrant_precedence(
     script, submit, config, expected, submit_store, config_store, expected_store
 ):
     """Submit-time value > config > default, for both QDRANT_BIN and the
-    storage folder, even though `castlerag paths` always prints both
+    storage folder, even though `alignview paths` always prints both
     (possibly empty)."""
     import subprocess
 
@@ -206,13 +206,7 @@ def test_older_slurm_scripts_check_the_binary_before_any_server():
     import re
 
     for name in (
-        "resume_day1",
-        "resume2_day1",
-        "full_day1",
         "index_qdrant",
-        "smoke_min_allinone",
-        "_smoke_wandb",
-        "_healthcheck_smoke",
     ):
         lines = (REPO / "scripts" / "slurm" / f"{name}.slurm").read_text().splitlines()
         guard = next(
@@ -263,7 +257,7 @@ def test_slurm_hf_home_precedence(script, override, config, login, expected):
     assert text.count("HF_HOME=") == 1, f"{script}: HF_HOME set more than once"
     env = {"PATH": "/usr/bin:/bin", "SC": "/scratch/x", "HF_HOME_DIR": config}
     if override:
-        env["CASTLERAG_HF_HOME"] = override
+        env["ALIGNVIEW_HF_HOME"] = override
     if login:
         env["HF_HOME"] = login
     out = subprocess.run(

@@ -69,7 +69,7 @@ def main() -> None:
                 texts.append(v)
     print(f"unique variants to embed: {len(texts)}")
 
-    from castlerag.embed.omniembed import OmniEmbedClient
+    from alignview.embed.omniembed import OmniEmbedClient
 
     client = OmniEmbedClient(
         model=args.model,

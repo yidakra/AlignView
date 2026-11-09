@@ -1,7 +1,7 @@
-"""Capture user-study screenshots and a manifest from the live CastleRAG UI.
+"""Capture user-study screenshots and a manifest from the live AlignView UI.
 
 Runs on a laptop against the dashboard that ``scripts/slurm/ui_live.slurm``
-serves on a Snellius compute node. That job binds ``castlerag ui`` to port
+serves on a Snellius compute node. That job binds ``alignview ui`` to port
 **8050** (``UI_PORT``; the CLI's own default of 50225 does not apply) and prints
 the node name in ``logs/castle-ui-live_<jobid>.out``. Forward it with:
 
@@ -14,7 +14,7 @@ then run (default ``--url`` is http://localhost:8050/):
     python scripts/study_screenshots.py --tasks 1,3-4 --annotate
 
 If the job runs with ``PUBLIC_TUNNEL=1`` the app enforces basic auth; export
-``CASTLERAG_UI_BASIC_AUTH=user:pass`` and the script sends it.
+``ALIGNVIEW_UI_BASIC_AUTH=user:pass`` and the script sends it.
 
 Per task it asks the question, then saves to ``outputs/user_study/taskNN_<slug>/``:
 
@@ -37,9 +37,9 @@ override per task with ``--plan plan.json``::
 
 The script refuses to run unless the top bar shows the "live RAG" badge:
 offline answers are fabricated and must never reach the study. ``--allow-offline``
-exists only to dry-run the flow against a local ``castlerag ui``.
+exists only to dry-run the flow against a local ``alignview ui``.
 
-Browser-free logic lives in ``castlerag.study.capture`` (unit-tested).
+Browser-free logic lives in ``alignview.study.capture`` (unit-tested).
 """
 
 from __future__ import annotations
@@ -53,8 +53,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from castlerag.study import capture as cap
-from castlerag.ui.youtube import YouTubeMirror
+from alignview.study import capture as cap
+from alignview.ui.youtube import YouTubeMirror
 
 VIEWPORT = {"width": 1600, "height": 1000}
 SCALE = 2  # device-scale factor: crisp screenshots for the paper/slides
@@ -484,7 +484,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "device_scale_factor": SCALE,
         "accept_downloads": True,
     }
-    auth = os.environ.get("CASTLERAG_UI_BASIC_AUTH", "")
+    auth = os.environ.get("ALIGNVIEW_UI_BASIC_AUTH", "")
     if auth:
         user, _, password = auth.partition(":")
         ctx_kwargs["http_credentials"] = {"username": user, "password": password}

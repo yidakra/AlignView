@@ -1,12 +1,12 @@
 #!/bin/bash
 # embed_video.slurm
 # OmniEmbed encoding for main-clip video points and auxiliary video points.
-# Batch size: 4 (video is the most expensive modality) — see SPEC §3.2.
+# Batch size: 4 (video is the most expensive modality)
 # ~48,000 main clips across 10 ego cameras.
 # Estimated: 32–48 GPU-hours total; dominant cost in the offline build.
 # Array: one job per day (SLURM_ARRAY_TASK_ID maps to day 1-4).
 # To shard further by camera, expand to --array=1-40 and add camera-sharding
-# logic (map task id to day and camera index) once issue #5 is implemented.
+# logic (map task id to day and camera index) later.
 #
 # Usage:
 #   sbatch --account=<account> --dependency=afterok:<preprocess_main_job_id> \
@@ -28,7 +28,7 @@ set -euo pipefail
 
 DAY="${SLURM_ARRAY_TASK_ID}"
 CONFIG="${CONFIG:-configs/snellius.yaml}"
-VENV="${VENV:-${HOME}/castlerag_venv}"
+VENV="${VENV:-${HOME}/alignview_venv}"
 
 echo "[embed_video] day=${DAY}  host=$(hostname)  start=$(date -Iseconds)"
 
@@ -36,7 +36,7 @@ module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12
 
 source "${VENV}/bin/activate"
 
-castlerag embed \
+alignview embed \
     --config "${CONFIG}" \
     --modality video \
     --day "${DAY}"

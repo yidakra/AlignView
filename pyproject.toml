@@ -3,10 +3,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "castlerag"
+name = "alignview"
 version = "0.1.0"
-description = "Multimodal RAG for verifiable QA over the CASTLE 2024 dataset (EgoVis 2026)"
+description = "AlignView: interactive evidence verification for question answering over time-aligned video streams"
 requires-python = ">=3.10"
+license = { text = "MIT" }
 dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
@@ -23,12 +24,12 @@ dependencies = [
 ]
 
 [project.scripts]
-castlerag = "castlerag.cli:app"
+alignview = "alignview.cli:app"
 
 [project.optional-dependencies]
 dev = [
     # include the UI extra so CI exercises the Dash app + Plotly figure tests
-    "castlerag[ui]",
+    "alignview[ui]",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "mypy>=1.10",
@@ -60,14 +61,14 @@ tracking = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/castlerag"]
+packages = ["src/alignview"]
 artifacts = [
-    "src/castlerag/ui/youtube_mirror.csv",
-    "src/castlerag/ui/assets/*",
+    "src/alignview/ui/youtube_mirror.csv",
+    "src/alignview/ui/assets/*",
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
-"configs" = "castlerag/configs"
+"configs" = "alignview/configs"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

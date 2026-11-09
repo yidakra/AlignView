@@ -1,8 +1,8 @@
 #!/bin/bash
 # smoke_day1_roomfix.slurm — NON-DESTRUCTIVE 40-question day-1 smoke eval against
 # the EXISTING castle_multimodal_v1 index, to validate the room-hard-filter fix
-# (issue #50 / PR #53).  Boots OmniEmbed + Qwen3-VL + Qdrant on the persisted
-# scratch storage and runs ONLY `castlerag smoke-test` (no preprocess / embed /
+#.  Boots OmniEmbed + Qwen3-VL + Qdrant on the persisted
+# scratch storage and runs ONLY `alignview smoke-test` (no preprocess / embed /
 # index / create-collection).  Aborts if the collection has been emptied.
 #
 # The fix is query-time only (retrieval no longer hard-filters dense search by
@@ -42,19 +42,19 @@ echo "[smoke] host=$(hostname) gpu=$(nvidia-smi -L 2>/dev/null | head -1) start=
 echo "[smoke] branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) commit=$(git rev-parse --short HEAD 2>/dev/null)"
 
 module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12.6.0 FFmpeg/7.0.2-GCCcore-13.3.0
-source "${HOME}/castlerag_venv/bin/activate"
+source "${HOME}/alignview_venv/bin/activate"
 cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 # Values exported at submission (sbatch --export) win over the config.
 _SUBMIT_QDRANT_BIN="${QDRANT_BIN:-}"
 _SUBMIT_QDRANT_STORAGE="${QDRANT_STORAGE:-}"
-PATHS="$(castlerag paths --config "${CONF}")" || { echo "ABORT: castlerag paths failed for ${CONF}"; exit 1; }
+PATHS="$(alignview paths --config "${CONF}")" || { echo "ABORT: alignview paths failed for ${CONF}"; exit 1; }
 eval "${PATHS}"
 QSTORE="${_SUBMIT_QDRANT_STORAGE:-${QDRANT_STORAGE:-${SC}/qdrant_storage}}"
 QDRANT_BIN="${_SUBMIT_QDRANT_BIN:-${QDRANT_BIN:-${HOME}/qdrant/qdrant}}"   # submit > config qdrant.binary > own copy
 [ -x "${QDRANT_BIN}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN} (set qdrant.binary in ${CONF})"; exit 1; }
-# Model cache: CASTLERAG_HF_HOME > config slurm.hf_home > scratch. HF_HOME itself is
+# Model cache: ALIGNVIEW_HF_HOME > config slurm.hf_home > scratch. HF_HOME itself is
 # not honoured from the environment, since login shells often set it elsewhere.
-export HF_HOME="${CASTLERAG_HF_HOME:-${HF_HOME_DIR:-${SC}/hf_cache}}"
+export HF_HOME="${ALIGNVIEW_HF_HOME:-${HF_HOME_DIR:-${SC}/hf_cache}}"
 [ -d "${HF_HOME}/hub" ] || { echo "ABORT: no model cache at ${HF_HOME}/hub (jobs run offline; set slurm.hf_home in ${CONF})"; exit 1; }
 # One Qdrant per storage folder: take the lock before any server starts, so a
 # refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
@@ -111,7 +111,7 @@ fi
 # The eval embed client is pointed at VLLM_BASE_URL (the Qwen3-VL gen server on
 # 8201), so a live query-embed on a cache MISS would POST /v1/embeddings to the
 # gen server and 404. Precomputing every query variant against OmniEmbed (8200)
-# gives 100% cache hits, matching the designed full_day1 flow. Written to a
+# gives 100% cache hits, as in a full ingest. Written to a
 # smoke-specific, job-unique file so the existing query_cache.npz is untouched
 # and concurrent smoke jobs cannot clobber each other's cache.
 SMOKE_CACHE="${SC}/smoke_day1_query_cache_${SLURM_JOB_ID}.npz"
@@ -125,15 +125,15 @@ OMNIEMBED_URL="http://localhost:8200/v1" \
 export VLLM_BASE_URL="http://localhost:8201/v1"
 export OMNIEMBED_QUERY_CACHE="${SMOKE_CACHE}"
 echo "[smoke] === smoke-test (${NQ} questions, ${QFILE}, default_day=${DAY:-none} exclude=${EXCLUDE:-none}) ==="
-castlerag smoke-test "${QFILE}" --n "${NQ}" --config "${CONF}" ${DAY:+--day "${DAY}"} ${EXCLUDE:+--exclude-cameras "${EXCLUDE}"}
+alignview smoke-test "${QFILE}" --n "${NQ}" --config "${CONF}" ${DAY:+--day "${DAY}"} ${EXCLUDE:+--exclude-cameras "${EXCLUDE}"}
 
 OUT="${OUTPUTS_DIR}/smoke_test"
 echo "[smoke] === metrics.json ==="
 cat "${OUT}/metrics.json" 2>/dev/null || find "${OUT}" -name 'metrics*.json' -exec cat {} \;
 echo
 
-# --- issue #50 summary: zero-evidence (is_supported=False) breakdown ---
-echo "[smoke] === issue #50 summary (zero-evidence questions) ==="
+# --- summary: zero-evidence (is_supported=False) breakdown ---
+echo "[smoke] === summary (zero-evidence questions) ==="
 # smoke-test writes a deterministic predictions.json; read it directly rather
 # than `find | head -1`, which could pick a stale artifact from an earlier run.
 PRED="${OUT}/predictions.json"

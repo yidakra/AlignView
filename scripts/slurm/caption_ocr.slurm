@@ -4,7 +4,7 @@
 # Array: one job per day (1–4).
 # Depends on: preprocess_main.slurm completing successfully.
 #
-# Estimated GPU cost: 16–32 GPU-hours total (see SPEC §3.5).
+# Estimated GPU cost: 16–32 GPU-hours total.
 #
 # Usage:
 #   sbatch --account=<account> --dependency=afterok:<preprocess_job_id> \
@@ -26,7 +26,7 @@ set -euo pipefail
 
 DAY="${SLURM_ARRAY_TASK_ID}"
 CONFIG="${CONFIG:-configs/snellius.yaml}"
-VENV="${VENV:-${HOME}/castlerag_venv}"
+VENV="${VENV:-${HOME}/alignview_venv}"
 
 echo "[caption_ocr] day=${DAY}  host=$(hostname)  start=$(date -Iseconds)"
 
@@ -39,6 +39,6 @@ if [[ -z "${VLLM_BASE_URL:-}" ]]; then
   exit 1
 fi
 
-castlerag preprocess --caption --config "${CONFIG}" --day "${DAY}"
+alignview preprocess --caption --config "${CONFIG}" --day "${DAY}"
 
 echo "[caption_ocr] done  day=${DAY}  end=$(date -Iseconds)"

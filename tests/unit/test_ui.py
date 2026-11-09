@@ -6,7 +6,7 @@ from dataclasses import asdict
 
 import pytest
 
-from castlerag.ui.chat import (
+from alignview.ui.chat import (
     CameraAngle,
     ChatTurnResult,
     Claim,
@@ -15,7 +15,7 @@ from castlerag.ui.chat import (
     QueryGroup,
     SupportLevel,
 )
-from castlerag.ui.youtube import PLACEHOLDER_VIDEO_ID, YouTubeMirror
+from alignview.ui.youtube import PLACEHOLDER_VIDEO_ID, YouTubeMirror
 
 # ---------------------------------------------------------------------------
 # YouTube mirror
@@ -85,7 +85,7 @@ def test_answer_populates_claim_and_moments():
 
 
 def test_answer_cites_top_moment_best_and_corroborating_angles():
-    from castlerag.ui.callbacks import _CITE_MARKER_RE
+    from alignview.ui.callbacks import _CITE_MARKER_RE
 
     result = PlaceholderEngine().answer("Who pranks Bjorn when he returns?")
     top = result.moments[0]
@@ -102,7 +102,7 @@ def test_answer_cites_top_moment_best_and_corroborating_angles():
 
 
 def test_refine_answer_embeds_a_citation_marker():
-    from castlerag.ui.callbacks import _CITE_MARKER_RE
+    from alignview.ui.callbacks import _CITE_MARKER_RE
 
     result = PlaceholderEngine().refine("a claim", "sharper query", 2)
     assert _CITE_MARKER_RE.search(result.answer_text)
@@ -207,7 +207,7 @@ def _walk(node, acc):
 
 
 def test_serialize_group_marks_unmapped_cameras_as_no_embed():
-    from castlerag.ui.callbacks import _serialize_group
+    from alignview.ui.callbacks import _serialize_group
 
     mirror = YouTubeMirror(mapping={})  # empty -> every triple is a placeholder
     moment = EvidenceMoment(
@@ -249,7 +249,7 @@ def test_serialize_group_marks_unmapped_cameras_as_no_embed():
 
 
 def test_camera_grid_renders_missing_tile_without_iframe():
-    from castlerag.ui.callbacks import _render_camera_grid
+    from alignview.ui.callbacks import _render_camera_grid
 
     moment = {
         "clock_label": "12:29",
@@ -271,7 +271,7 @@ def test_camera_grid_renders_missing_tile_without_iframe():
 
 def test_build_app_assembles_layout_and_callbacks():
     pytest.importorskip("dash")
-    from castlerag.ui.app import build_app
+    from alignview.ui.app import build_app
 
     app = build_app()
     assert app.layout is not None
@@ -284,7 +284,7 @@ def test_viewer_outputs_match_their_output_specs():
     """`_viewer_outputs` must return exactly one value per declared Output."""
     import plotly.graph_objects as go
 
-    from castlerag.ui.callbacks import _viewer_output_specs, _viewer_outputs
+    from alignview.ui.callbacks import _viewer_output_specs, _viewer_outputs
 
     moment = {
         "moment_id": "m0",
@@ -312,7 +312,7 @@ def test_viewer_outputs_match_their_output_specs():
 
 
 def test_rejected_cameras_accumulates_across_thread():
-    from castlerag.ui.callbacks import _rejected_cameras
+    from alignview.ui.callbacks import _rejected_cameras
 
     # Two frozen iterations: Kitchen rejected in iter 1, Living2 in iter 2.
     thread = [
@@ -327,7 +327,7 @@ def test_rejected_cameras_accumulates_across_thread():
 
 
 def test_rejected_cameras_empty_when_none_rejected():
-    from castlerag.ui.callbacks import _rejected_cameras
+    from alignview.ui.callbacks import _rejected_cameras
 
     thread = [{"reviews": {"m1": {"Allie": {"state": "confirmed"}}}}]
     assert _rejected_cameras(thread, {"Bjorn": {"state": "flagged"}}) == []
@@ -335,10 +335,10 @@ def test_rejected_cameras_empty_when_none_rejected():
 
 
 def test_basic_auth_gates_requests_when_env_set(monkeypatch):
-    monkeypatch.setenv("CASTLERAG_UI_BASIC_AUTH", "demo:secret")
+    monkeypatch.setenv("ALIGNVIEW_UI_BASIC_AUTH", "demo:secret")
     from dash import Dash, html
 
-    from castlerag.ui.app import _install_basic_auth
+    from alignview.ui.app import _install_basic_auth
 
     app = Dash(__name__)
     app.layout = html.Div("ok")
@@ -357,10 +357,10 @@ def test_basic_auth_gates_requests_when_env_set(monkeypatch):
 
 
 def test_basic_auth_absent_when_env_unset(monkeypatch):
-    monkeypatch.delenv("CASTLERAG_UI_BASIC_AUTH", raising=False)
+    monkeypatch.delenv("ALIGNVIEW_UI_BASIC_AUTH", raising=False)
     from dash import Dash, html
 
-    from castlerag.ui.app import _install_basic_auth
+    from alignview.ui.app import _install_basic_auth
 
     app = Dash(__name__)
     app.layout = html.Div("ok")
@@ -372,10 +372,10 @@ def test_basic_auth_rejects_malformed_credentials(monkeypatch):
     import pytest
     from dash import Dash, html
 
-    from castlerag.ui.app import _install_basic_auth
+    from alignview.ui.app import _install_basic_auth
 
     for bad in (":", "user:", ":password", "  :  ", "nocolon"):
-        monkeypatch.setenv("CASTLERAG_UI_BASIC_AUTH", bad)
+        monkeypatch.setenv("ALIGNVIEW_UI_BASIC_AUTH", bad)
         app = Dash(__name__)
         app.layout = html.Div("ok")
         with pytest.raises(ValueError):
@@ -383,7 +383,7 @@ def test_basic_auth_rejects_malformed_credentials(monkeypatch):
 
 
 def test_should_converge_true_when_all_confirmed_or_ignored():
-    from castlerag.ui.callbacks import _should_converge
+    from alignview.ui.callbacks import _should_converge
 
     assert _should_converge(
         {"Luca": {"state": "confirmed"}, "Klaus": {"state": "ignored"}}
@@ -394,7 +394,7 @@ def test_should_converge_true_when_all_confirmed_or_ignored():
 
 
 def test_should_converge_false_when_any_flagged_or_rejected():
-    from castlerag.ui.callbacks import _should_converge
+    from alignview.ui.callbacks import _should_converge
 
     assert not _should_converge(
         {"Luca": {"state": "confirmed"}, "Klaus": {"state": "flagged"}}
@@ -406,7 +406,7 @@ def test_should_converge_false_when_any_flagged_or_rejected():
 
 
 def test_strip_internal_links_removes_non_http_refs():
-    from castlerag.ui.callbacks import _strip_internal_links
+    from alignview.ui.callbacks import _strip_internal_links
 
     text = (
         "The answer is clear from "
@@ -423,14 +423,14 @@ def test_strip_internal_links_removes_non_http_refs():
 
 
 def test_strip_internal_links_preserves_real_urls():
-    from castlerag.ui.callbacks import _strip_internal_links
+    from alignview.ui.callbacks import _strip_internal_links
 
     text = "See [YouTube](https://www.youtube.com/watch?v=abc) for details."
     assert _strip_internal_links(text) == text
 
 
 def test_render_answer_turns_cite_markers_into_clickable_chips():
-    from castlerag.ui.callbacks import _render_answer
+    from alignview.ui.callbacks import _render_answer
 
     text = (
         "The footage shows **Luca** at the kitchen "
@@ -458,7 +458,7 @@ def test_render_answer_turns_cite_markers_into_clickable_chips():
 
 
 def test_render_answer_without_citations_is_plain_prose():
-    from castlerag.ui.callbacks import _render_answer
+    from alignview.ui.callbacks import _render_answer
 
     answer = _render_answer("g1", "A plain answer with no citations.")
     assert not any(
@@ -468,7 +468,7 @@ def test_render_answer_without_citations_is_plain_prose():
 
 
 def test_camera_grid_autoplays_only_the_cited_camera():
-    from castlerag.ui.callbacks import _render_camera_grid
+    from alignview.ui.callbacks import _render_camera_grid
 
     moment = {
         "clock_label": "12:29",
@@ -502,10 +502,10 @@ def test_tour_button_and_assets_are_wired():
     pytest.importorskip("dash")
     from pathlib import Path
 
-    import castlerag.ui as ui_pkg
-    from castlerag.ui.callbacks import _support_badge
-    from castlerag.ui.layout import build_layout
-    from castlerag.ui.youtube import YouTubeMirror
+    import alignview.ui as ui_pkg
+    from alignview.ui.callbacks import _support_badge
+    from alignview.ui.layout import build_layout
+    from alignview.ui.youtube import YouTubeMirror
 
     assets = Path(ui_pkg.__file__).parent / "assets"
     tour_js = (assets / "tour.js").read_text(encoding="utf-8")

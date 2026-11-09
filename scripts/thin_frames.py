@@ -3,7 +3,7 @@
 
 Each 30 s clip is sampled at 1 fps (~30 JPEGs), but after captioning only a
 few frames are ever read again: the reranker and the generator sample frames
-evenly across a clip (``castlerag.frame_encoding.sample_frames_evenly``). This
+evenly across a clip (``alignview.frame_encoding.sample_frames_evenly``). This
 keeps ``--keep`` evenly spaced frames per clip (default 8, the generator's
 per-clip maximum), deletes the rest, and rewrites ``sampled_frame_paths`` in
 the day's chunk JSONLs to the kept frames. Readers sample from the frames that
@@ -34,13 +34,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Set, Tuple
 
-from castlerag.config import load_config
-from castlerag.frame_encoding import (
+from alignview.config import load_config
+from alignview.frame_encoding import (
     available_frames,
     resolve_frame_path,
     sample_frames_evenly,
 )
-from castlerag.fsutil import share_tmp_file
+from alignview.fsutil import share_tmp_file
 
 PLAN_NAME = ".thin_plan.json"
 # Stats and unlinks are metadata operations on a shared filesystem (GPFS on

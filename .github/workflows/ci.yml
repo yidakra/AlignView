@@ -36,7 +36,7 @@ jobs:
         run: python -m pip install -e ".[dev]"
 
       - name: Verify CLI entrypoint
-        run: castlerag --help
+        run: alignview --help
 
       - name: Run Ruff
         run: ruff check .

@@ -25,7 +25,7 @@ dist/
 build/
 *.egg-info/
 
-# CastleRAG generated data — never commit raw dataset or derived artifacts
+# AlignView generated data — never commit raw dataset or derived artifacts
 data/derived/
 data/manifests/
 outputs/

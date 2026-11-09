@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from castlerag.frame_encoding import sample_frames_evenly
+from alignview.frame_encoding import sample_frames_evenly
 
 
 def test_sample_frames_evenly_spreads_over_a_30s_clip():

@@ -8,9 +8,9 @@ from typing import Any, List
 
 import pytest
 
-from castlerag.schemas import RetrievalHit
-from castlerag.ui.chat import ChatTurnResult, Claim, PlaceholderEngine, SupportLevel
-from castlerag.ui.rag_engine import RagEngine
+from alignview.schemas import RetrievalHit
+from alignview.ui.chat import ChatTurnResult, Claim, PlaceholderEngine, SupportLevel
+from alignview.ui.rag_engine import RagEngine
 
 # ---------------------------------------------------------------------------
 # Adapters (deterministic, no pipeline)
@@ -97,7 +97,7 @@ def test_pad_cameras_is_deterministic():
     ],
 )
 def test_synthesize_claim_support_thresholds(max_prior, expected):
-    from castlerag.schemas import Prediction
+    from alignview.schemas import Prediction
 
     pred = Prediction(question_id="q", predicted_answer="b")
     priors = {"a": 0.1, "b": max_prior, "c": 0.0, "d": 0.0}
@@ -108,7 +108,7 @@ def test_synthesize_claim_support_thresholds(max_prior, expected):
 
 def test_synthesize_claim_thresholds_on_predicted_choice_not_max():
     """Support must come from the predicted choice, never borrowed from another."""
-    from castlerag.schemas import Prediction
+    from alignview.schemas import Prediction
 
     pred = Prediction(question_id="q", predicted_answer="b")
     # 'a' is strongly supported but 'b' (the prediction) is not — support must
@@ -120,7 +120,7 @@ def test_synthesize_claim_thresholds_on_predicted_choice_not_max():
 
 def test_synthesize_claim_free_form_uses_evidence_not_dummy_priors():
     """Free-form questions ignore MCQ priors and gauge support from evidence."""
-    from castlerag.schemas import Prediction
+    from alignview.schemas import Prediction
 
     pred = Prediction(
         question_id="q", predicted_answer="a", raw_answer_text="Bjorn cooks porridge."
@@ -146,7 +146,7 @@ def test_synthesize_claim_free_form_uses_evidence_not_dummy_priors():
 
 def test_synthesize_claim_free_form_uses_explicit_support_score():
     """Free-form support comes from the reranker score, not the (None) rows."""
-    from castlerag.schemas import Prediction
+    from alignview.schemas import Prediction
 
     pred = Prediction(
         question_id="q", predicted_answer="a", raw_answer_text="Cathal taught guitar."
@@ -199,8 +199,8 @@ def test_no_evidence_moment_keeps_focus_contract():
 
 
 def test_append_evidence_citations_cites_each_real_moment():
-    from castlerag.ui.chat import CameraAngle, EvidenceMoment
-    from castlerag.ui.rag_engine import _append_evidence_citations
+    from alignview.ui.chat import CameraAngle, EvidenceMoment
+    from alignview.ui.rag_engine import _append_evidence_citations
 
     def _moment(mid, cam, clock):
         return EvidenceMoment(
@@ -221,7 +221,7 @@ def test_append_evidence_citations_cites_each_real_moment():
 
 
 def test_append_evidence_citations_skips_no_evidence_moment():
-    from castlerag.ui.rag_engine import _append_evidence_citations
+    from alignview.ui.rag_engine import _append_evidence_citations
 
     moment = _engine()._no_evidence_moment(SupportLevel.UNSUPPORTED)
     assert _append_evidence_citations("Nothing found.", [moment]) == "Nothing found."
@@ -236,9 +236,9 @@ def test_dense_search_plumbs_timing_fields():
     qm = pytest.importorskip("qdrant_client.http.models")
     from qdrant_client import QdrantClient
 
-    from castlerag.index.qdrant import build_point_batches, upsert_batch
-    from castlerag.retrieval.search import _dense_search
-    from castlerag.schemas import ClipRecord
+    from alignview.index.qdrant import build_point_batches, upsert_batch
+    from alignview.retrieval.search import _dense_search
+    from alignview.schemas import ClipRecord
 
     clip = ClipRecord(
         clip_id="day1_Bjorn_12_0004",
@@ -331,15 +331,15 @@ def _build_stub_engine(tmp_path: Path) -> RagEngine:
     qm = pytest.importorskip("qdrant_client.http.models")
     from qdrant_client import QdrantClient
 
-    from castlerag.config import CastleRAGConfig
-    from castlerag.eval.run_eval import EvalPipeline
-    from castlerag.generation.answer import generate_answer
-    from castlerag.index.qdrant import build_point_batches, upsert_batch
-    from castlerag.index.transcript_lexical import build_bm25_index
-    from castlerag.rerank.llm_reranker import rerank_candidates
-    from castlerag.retrieval.search import retrieve as _retrieve
-    from castlerag.routing.question_router import route_question
-    from castlerag.schemas import ClipRecord, EvalQuestion, Prediction, TranscriptWindow
+    from alignview.config import AlignViewConfig
+    from alignview.eval.run_eval import EvalPipeline
+    from alignview.generation.answer import generate_answer
+    from alignview.index.qdrant import build_point_batches, upsert_batch
+    from alignview.index.transcript_lexical import build_bm25_index
+    from alignview.rerank.llm_reranker import rerank_candidates
+    from alignview.retrieval.search import retrieve as _retrieve
+    from alignview.routing.question_router import route_question
+    from alignview.schemas import ClipRecord, EvalQuestion, Prediction, TranscriptWindow
 
     base = 1_700_000_000_000
     # Three synchronized clips: same day/hour/window, three cameras.
@@ -396,7 +396,7 @@ def _build_stub_engine(tmp_path: Path) -> RagEngine:
         vectors=embed.embed_texts(["x"] * len(records)).tolist(),
         payloads=[r.model_dump(exclude_none=True) for r in rows],
     )
-    cfg = CastleRAGConfig()
+    cfg = AlignViewConfig()
     llm = _StubLLM()
 
     def retrieve(question: EvalQuestion, hints: Any) -> List[RetrievalHit]:
@@ -442,8 +442,8 @@ def _build_stub_engine(tmp_path: Path) -> RagEngine:
 
 def test_run_question_skips_generation_for_free_form(tmp_path):
     """Free-form questions skip the MCQ generator but still retrieve+rerank."""
-    from castlerag.eval.run_eval import run_question
-    from castlerag.schemas import EvalQuestion
+    from alignview.eval.run_eval import run_question
+    from alignview.schemas import EvalQuestion
 
     engine = _build_stub_engine(tmp_path)
     free = EvalQuestion(
@@ -484,8 +484,8 @@ def test_answer_end_to_end_real_pipeline(tmp_path):
 
 
 def test_build_engine_falls_back_without_vllm(monkeypatch):
-    from castlerag.ui.engine_factory import build_engine, engine_mode
-    from castlerag.ui.youtube import YouTubeMirror
+    from alignview.ui.engine_factory import build_engine, engine_mode
+    from alignview.ui.youtube import YouTubeMirror
 
     monkeypatch.delenv("VLLM_BASE_URL", raising=False)
     engine = build_engine(YouTubeMirror.from_csv())
@@ -494,8 +494,8 @@ def test_build_engine_falls_back_without_vllm(monkeypatch):
 
 
 def test_build_engine_falls_back_on_pipeline_error(monkeypatch):
-    from castlerag.ui import engine_factory
-    from castlerag.ui.youtube import YouTubeMirror
+    from alignview.ui import engine_factory
+    from alignview.ui.youtube import YouTubeMirror
 
     monkeypatch.setenv("VLLM_BASE_URL", "http://localhost:1/v1")
     # Server is up (probe passes); the pipeline build itself is what fails here.
@@ -509,14 +509,14 @@ def test_build_engine_falls_back_on_pipeline_error(monkeypatch):
     assert isinstance(engine, PlaceholderEngine)
 
 
-def test_from_config_honors_castlerag_config_env(monkeypatch):
-    """With no cfg injected, from_config loads the CASTLERAG_CONFIG override."""
+def test_from_config_honors_alignview_config_env(monkeypatch):
+    """With no cfg injected, from_config loads the ALIGNVIEW_CONFIG override."""
     import importlib
 
-    # ``castlerag.eval.run_eval`` is shadowed by a re-exported function at the
+    # ``alignview.eval.run_eval`` is shadowed by a re-exported function at the
     # package level, so reach the real modules through importlib to patch them.
-    config_mod = importlib.import_module("castlerag.config")
-    run_eval_mod = importlib.import_module("castlerag.eval.run_eval")
+    config_mod = importlib.import_module("alignview.config")
+    run_eval_mod = importlib.import_module("alignview.eval.run_eval")
 
     seen = {}
 
@@ -526,7 +526,7 @@ def test_from_config_honors_castlerag_config_env(monkeypatch):
 
     monkeypatch.setattr(config_mod, "load_config", _fake_load_config)
     monkeypatch.setattr(run_eval_mod, "_build_default_pipeline", lambda cfg: object())
-    monkeypatch.setenv("CASTLERAG_CONFIG", "configs/snellius_me.yaml")
+    monkeypatch.setenv("ALIGNVIEW_CONFIG", "configs/snellius_me.yaml")
 
     RagEngine.from_config()
     assert seen["override_path"] == "configs/snellius_me.yaml"
@@ -534,8 +534,8 @@ def test_from_config_honors_castlerag_config_env(monkeypatch):
 
 def test_build_engine_falls_back_when_vllm_unreachable(monkeypatch):
     """VLLM_BASE_URL is set but no server answers -> offline, without building."""
-    from castlerag.ui import engine_factory
-    from castlerag.ui.youtube import YouTubeMirror
+    from alignview.ui import engine_factory
+    from alignview.ui.youtube import YouTubeMirror
 
     monkeypatch.setenv("VLLM_BASE_URL", "http://localhost:1/v1")
     monkeypatch.setattr(engine_factory, "_vllm_reachable", lambda *_a, **_k: False)
@@ -568,8 +568,8 @@ def _build_cotemporal_engine(
 
     from qdrant_client import QdrantClient
 
-    from castlerag.index.qdrant import build_point_batches, upsert_batch
-    from castlerag.schemas import ClipRecord
+    from alignview.index.qdrant import build_point_batches, upsert_batch
+    from alignview.schemas import ClipRecord
 
     base = 1_700_000_000_000
     clips = [

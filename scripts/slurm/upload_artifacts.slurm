@@ -10,7 +10,7 @@
 # captioning/embedding (~15k SBU per day). Usage, after the day's ingest and
 # scripts/thin_frames.py --apply:
 #   sbatch --export=ALL,DAY=1 scripts/slurm/upload_artifacts.slurm
-# Optional: REPO=<owner/name> (default yidakra/castlerag-artifacts), FRAMES=1
+# Optional: REPO=<owner/name> (default yidakra/alignview-artifacts), FRAMES=1
 # to add the thinned frames, CONF=<config> (default configs/snellius_project.yaml).
 #
 # Frames are off by default: a free HF account has 100 GB of private storage
@@ -26,15 +26,15 @@ set -uo pipefail
 umask 0007   # project space is shared with the prjs2298 group: group read/write on new files
 DAY="${DAY:?set DAY=1..4}"
 case "$DAY" in 1|2|3|4) ;; *) echo "ABORT: DAY must be 1-4"; exit 1;; esac
-REPO="${REPO:-yidakra/castlerag-artifacts}"
+REPO="${REPO:-yidakra/alignview-artifacts}"
 FRAMES="${FRAMES:-0}"
 CONF="${CONF:-configs/snellius_project.yaml}"   # derived data live in /projects/prjs2298 since 2026-10-07
 HF_VENV="${HF_VENV:-$HOME/hfdl_venv}"
-CASTLE_VENV="${CASTLE_VENV:-$HOME/castlerag_venv}"
+CASTLE_VENV="${CASTLE_VENV:-$HOME/alignview_venv}"
 SC="/scratch-shared/$USER"
 # Artifact locations come from CONF (scratch or the project space).
-PATHS="$("$CASTLE_VENV/bin/castlerag" paths --config "$CONF")" \
-  || { echo "ABORT: castlerag paths failed for $CONF"; exit 2; }
+PATHS="$("$CASTLE_VENV/bin/alignview" paths --config "$CONF")" \
+  || { echo "ABORT: alignview paths failed for $CONF"; exit 2; }
 eval "$PATHS"
 CHUNKS="$CHUNKS_DIR"
 EMB="$EMB_DIR"

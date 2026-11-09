@@ -1,8 +1,7 @@
 #!/bin/bash
 # ingest_day.slurm — ADDITIVE ingest of one CASTLE day (DAY=1..4) into the
-# EXISTING castle_multimodal_v1 collection. Generalises the day-1 fixed-camera
-# ingest of issue #50 Bug B / PR #61 (scripts/slurm/fixedcams_day1.slurm is now
-# a thin DAY=1 wrapper around this file).
+# EXISTING castle_multimodal_v1 collection. scripts/slurm/fixedcams_day1.slurm
+# is a thin DAY=1 wrapper around this file.
 #
 # Never recreates the collection and never touches cameras it was not asked for:
 #   * preprocess runs with `--camera <cam>` so base/caption/events only touch
@@ -40,7 +39,7 @@
 # A whole day (~140-180 camera-hours) does not fit in one 20 h job. Split it
 # into camera groups chained with --dependency=afterok (docs/ingest_all_days.md).
 #
-# Runbooks: docs/ingest_all_days.md (days 1-4), docs/fixedcams_reingest.md (day-1 fixed cams)
+# Runbook: docs/ingest_all_days.md (days 1-4)
 
 #SBATCH --job-name=castle-ingest-day
 #SBATCH --partition=gpu_a100
@@ -85,7 +84,7 @@ echo "${T} branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) commit=$(git re
 nvidia-smi -L 2>/dev/null | head -3
 
 module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12.6.0 FFmpeg/7.0.2-GCCcore-13.3.0
-source "${HOME}/castlerag_venv/bin/activate"
+source "${HOME}/alignview_venv/bin/activate"
 cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}" || exit 1
 mkdir -p logs
 # Every derived path comes from CONF (the project space for the default
@@ -94,7 +93,7 @@ mkdir -p logs
 # Values exported at submission (sbatch --export) win over the config.
 _SUBMIT_QDRANT_BIN="${QDRANT_BIN:-}"
 _SUBMIT_QDRANT_STORAGE="${QDRANT_STORAGE:-}"
-PATHS="$(castlerag paths --config "${CONF}")" || { echo "${T} ABORT: castlerag paths failed for ${CONF}"; exit 1; }
+PATHS="$(alignview paths --config "${CONF}")" || { echo "${T} ABORT: alignview paths failed for ${CONF}"; exit 1; }
 eval "${PATHS}"
 RAW="${DATA_ROOT}/main/day${DAY}"
 CHUNKS="${CHUNKS_DIR}/day${DAY}"
@@ -102,9 +101,9 @@ EMB="${EMB_DIR}"
 QSTORE="${_SUBMIT_QDRANT_STORAGE:-${QDRANT_STORAGE:-${SC}/qdrant_storage}}"
 QDRANT_BIN="${_SUBMIT_QDRANT_BIN:-${QDRANT_BIN:-${HOME}/qdrant/qdrant}}"   # submit > config qdrant.binary > own copy
 [ -x "${QDRANT_BIN}" ] || { echo "ABORT: Qdrant binary not executable: ${QDRANT_BIN} (set qdrant.binary in ${CONF})"; exit 1; }
-# Model cache: CASTLERAG_HF_HOME > config slurm.hf_home > scratch. HF_HOME itself is
+# Model cache: ALIGNVIEW_HF_HOME > config slurm.hf_home > scratch. HF_HOME itself is
 # not honoured from the environment, since login shells often set it elsewhere.
-export HF_HOME="${CASTLERAG_HF_HOME:-${HF_HOME_DIR:-${SC}/hf_cache}}"
+export HF_HOME="${ALIGNVIEW_HF_HOME:-${HF_HOME_DIR:-${SC}/hf_cache}}"
 [ -d "${HF_HOME}/hub" ] || { echo "ABORT: no model cache at ${HF_HOME}/hub (jobs run offline; set slurm.hf_home in ${CONF})"; exit 1; }
 # One Qdrant per storage folder: take the lock before any server starts, so a
 # refusal leaves nothing running (see scripts/slurm/qdrant_lock.sh).
@@ -129,8 +128,8 @@ has_video() { compgen -G "${RAW}/$1/video/*.mp4" >/dev/null; }
 # Camera roster from CONF (scope-aware) + which of those are fixed room cams.
 if ! ROSTER="$(python - "${CONF}" <<'PY'
 import sys
-from castlerag.config import load_config
-from castlerag.dataset.layout import scoped_cameras
+from alignview.config import load_config
+from alignview.dataset.layout import scoped_cameras
 cfg = load_config(override_path=sys.argv[1])
 d = cfg.dataset
 print(" ".join(scoped_cameras(d.ego_cameras, d.exo_cameras, d.camera_scope)))
@@ -143,7 +142,7 @@ SCOPE_CAMS="$(sed -n 1p <<< "${ROSTER}")"
 FIXED_CAMS="$(sed -n 2p <<< "${ROSTER}")"
 echo "${T} cameras in scope: ${SCOPE_CAMS}"
 
-# Hours per day, from src/castlerag/ui/youtube_mirror.csv: days 1-3 run 08-20,
+# Hours per day, from src/alignview/ui/youtube_mirror.csv: days 1-3 run 08-20,
 # day 4 ends at 18. Hours without a video file are skipped by preprocess anyway.
 if [ "${DAY}" = "4" ]; then
   DEFAULT_HOURS="8 9 10 11 12 13 14 15 16 17 18"
@@ -251,7 +250,7 @@ if [ "$(printf '%s\n' "${CAM_ARR[@]}" | sort | uniq -d)" ]; then
 fi
 CAM_FLAGS=(); for c in "${CAM_ARR[@]}"; do CAM_FLAGS+=(--camera "$c"); done
 # Fail fast on a typo / wrong scope before any GPU time is spent.
-castlerag preprocess --config "${CONF}" --day "${DAY}" "${CAM_FLAGS[@]}" --dry-run || exit 1
+alignview preprocess --config "${CONF}" --day "${DAY}" "${CAM_FLAGS[@]}" --dry-run || exit 1
 
 # Raw video present for every requested camera? Only the base pass cuts frames
 # from it; SKIP_BASE / SKIP_PREPROCESS runs (e.g. the re-flag events rebuild,
@@ -375,8 +374,8 @@ wait_ready "http://localhost:8200/v1/models" embed "${L}_omni_${J}.log" "${EMBP}
 # Safe in parallel now that caption/events are camera- AND hour-scoped: each
 # worker only rewrites its own <cam>/<HH>/clips.jsonl + events.jsonl. Captioning
 # is sequential per worker, so each camera's hours are split into SPLIT groups
-# to keep ~TARGET_WORKERS clients batching on the 2 gen servers (full_day1 ran
-# 10). One camera alone (e.g. Reading) -> 10 workers, not 1.
+# to keep ~TARGET_WORKERS clients batching on the 2 gen servers (10 workers
+# worked well). One camera alone (e.g. Reading) -> 10 workers, not 1.
 read -r -a HOUR_ARR <<< "${HOURS}"
 if [ "${#HOUR_ARR[@]}" -eq 0 ]; then
   echo "${T} ABORT: HOURS='${HOURS}' selected no hours"; exit 1
@@ -415,7 +414,7 @@ for cam in "${CAM_ARR[@]}"; do
     port=$((8201 + w % 2)); tag="${cam}_g${g}"; w=$((w + 1))
     ( T0=$(date +%s)
       VLLM_BASE_URL="http://localhost:${port}/v1" \
-        castlerag preprocess --config "${CONF}" --day "${DAY}" --camera "${cam}" "${HFLAGS[@]}" \
+        alignview preprocess --config "${CONF}" --day "${DAY}" --camera "${cam}" "${HFLAGS[@]}" \
           "${BASE_FLAG[@]}" "${CAPTION_FLAG[@]}" --events > "${L}_cam_${tag}_${J}.log" 2>&1
       rc=$?; echo "${T} ${tag} (port ${port}) rc=${rc} in $(( $(date +%s)-T0 ))s"; exit $rc
     ) & P+=($!); PC+=("${tag}")
@@ -486,13 +485,13 @@ wait_ready "http://localhost:8200/v1/models" embed "${L}_omni_${J}.log" "${EMBP}
 export VLLM_BASE_URL="http://localhost:8200/v1"
 for m in transcript event_summary video; do
   echo "${T} === embed --day ${DAY} --modality ${m} $(date -Iseconds) ==="
-  castlerag embed --config "${CONF}" --day "${DAY}" --modality "${m}" \
+  alignview embed --config "${CONF}" --day "${DAY}" --modality "${m}" \
     || { echo "${T} embed ${m} FAILED"; exit 1; }
 done
 
 # --- Phase 3: additive index (NO --create-collection) ----------------------
 echo "${T} === index --day ${DAY} (additive) $(date -Iseconds) ==="
-castlerag index --config "${CONF}" --day "${DAY}" || { echo "${T} index FAILED"; exit 1; }
+alignview index --config "${CONF}" --day "${DAY}" || { echo "${T} index FAILED"; exit 1; }
 
 # --- Phase 4: verify -------------------------------------------------------
 python scripts/qdrant_camera_counts.py --collection "${COLL}" --day "day${DAY}" \
@@ -500,7 +499,7 @@ python scripts/qdrant_camera_counts.py --collection "${COLL}" --day "day${DAY}" 
 python scripts/qdrant_camera_counts.py --collection "${COLL}" --day "day${DAY}" \
   --cameras "${CAM_ARR[@]}" --missing-only --fail-if-missing \
   || { echo "${T} VERIFY FAILED: some requested cameras still have 0 main_clip points"; exit 1; }
-echo "${T} DONE $(date -Iseconds). Next, on the login node: DAYS=\"<every day indexed so far>\" bash scripts/archive_bugb.sh"
+echo "${T} DONE $(date -Iseconds). Next, on the login node: DAYS=\"<every day indexed so far>\" bash scripts/archive_derived.sh"
 if [ "${DAY}" = "1" ]; then
   echo "${T}   then the 40-q day-1 eval:"
   echo "${T}   sbatch --account=gisr109364 --export=ALL,CONF=${CONF} scripts/slurm/smoke_day1_roomfix.slurm"

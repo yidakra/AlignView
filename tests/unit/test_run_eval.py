@@ -1,4 +1,4 @@
-"""Unit tests for src/castlerag/eval/run_eval.py — error paths and wiring."""
+"""Unit tests for src/alignview/eval/run_eval.py — error paths and wiring."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from castlerag.config import CastleRAGConfig, RetrievalConfig, load_config
-from castlerag.eval.run_eval import (
+from alignview.config import AlignViewConfig, RetrievalConfig, load_config
+from alignview.eval.run_eval import (
     EvalPipeline,
     IndexArtifactReport,
     PipelineDependencyError,
@@ -30,8 +30,8 @@ from castlerag.eval.run_eval import (
     run_eval,
     run_question,
 )
-from castlerag.routing.question_router import RouteHints
-from castlerag.schemas import (
+from alignview.routing.question_router import RouteHints
+from alignview.schemas import (
     EvalQuestion,
     EvidencePack,
     Prediction,
@@ -39,7 +39,7 @@ from castlerag.schemas import (
     RerankerOutput,
 )
 
-run_eval_module = importlib.import_module("castlerag.eval.run_eval")
+run_eval_module = importlib.import_module("alignview.eval.run_eval")
 
 
 # ---------------------------------------------------------------------------
@@ -525,8 +525,8 @@ class TestBuildDefaultPipeline:
 
 
 class TestEnsureQdrantCollectionReady:
-    def _cfg(self) -> CastleRAGConfig:
-        cfg = CastleRAGConfig()
+    def _cfg(self) -> AlignViewConfig:
+        cfg = AlignViewConfig()
         cfg.qdrant.host = "localhost"
         cfg.qdrant.port = 6333
         cfg.qdrant.collection = "test_collection"
@@ -644,8 +644,8 @@ class TestQdrantCollectionCount:
 
 
 class TestEnsureVllmRuntimeReady:
-    def _cfg(self) -> CastleRAGConfig:
-        cfg = CastleRAGConfig()
+    def _cfg(self) -> AlignViewConfig:
+        cfg = AlignViewConfig()
         cfg.embedding.backend = "vllm"
         return cfg
 

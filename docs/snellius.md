@@ -1,8 +1,8 @@
-# Running CastleRAG on Snellius
+# Running AlignView on Snellius
 
 End-to-end setup guide for the SURF Snellius HPC cluster.  Assumes you already
 have a Snellius account, SSH access, and a project SBU budget you can charge
-to.  No prior CastleRAG context required.
+to.  No prior AlignView context required.
 
 ## 1. Prerequisites
 
@@ -10,7 +10,7 @@ to.  No prior CastleRAG context required.
 - A project account with GPU SBUs (the `gpu_a100` partition is what every
   SLURM script in this repo targets; one quarter-node = 1 A100 + 18 CPU
   cores + 120 GiB RAM)
-- The account to charge. Jobs here use `--account=gisr109364`; the account
+- The account to charge. Jobs here use `--account=<account>`; the account
   is per user, so run `accinfo` and use the one it shows for you.
 - About **600 GiB** of scratch space.  `/scratch` is per-user, fast, and
   purged after 14 days of inactivity — do *not* keep anything important
@@ -24,25 +24,13 @@ to.  No prior CastleRAG context required.
 ssh <user>@snellius.surf.nl
 mkdir -p /scratch/$USER/castle2024 /scratch/$USER/castle_derived /scratch/$USER/castle_outputs ~/code
 cd ~/code
-git clone git@github.com:yidakra/CastleRAG.git
-cd CastleRAG
+git clone https://github.com/yidakra/AlignView.git
+cd AlignView
 ```
-
-The repository is private. Clone with an SSH key that your GitHub account can
-use, or, for a shared checkout that only pulls, add a read-only deploy key:
-
-```bash
-ssh-keygen -t ed25519 -N "" -C "snellius-castlerag-readonly" -f ~/.ssh/castlerag_deploy
-cat ~/.ssh/castlerag_deploy.pub   # add under Settings > Deploy keys, read-only
-printf '\nHost github-castlerag\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/castlerag_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
-git clone git@github-castlerag:yidakra/CastleRAG.git
-```
-
-Push from your own machine; the deploy key can only pull.
 
 ## 2. One-time environment
 
-Build the venv on a login node — the SLURM scripts pick it up from `${HOME}/castlerag_venv` by default.
+Build the venv on a login node — the SLURM scripts pick it up from `${HOME}/alignview_venv` by default.
 Use the same module versions the jobs load, or the venv's Python will not match
 at run time.
 
@@ -52,8 +40,8 @@ module load 2024
 module load Python/3.12.3-GCCcore-13.3.0 CUDA/12.6.0 FFmpeg/7.0.2-GCCcore-13.3.0
 which python   # must be the module's Python, not ~/anaconda3/... or similar
 
-python -m venv ~/castlerag_venv
-source ~/castlerag_venv/bin/activate
+python -m venv ~/alignview_venv
+source ~/alignview_venv/bin/activate
 pip install --upgrade pip
 pip install -e ".[dev,inference]"
 ```
@@ -66,14 +54,14 @@ build the venv from a clean shell:
 ```bash
 env -i HOME=$HOME bash --noprofile --norc -c 'source /etc/profile; \
   module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12.6.0 FFmpeg/7.0.2-GCCcore-13.3.0; \
-  python -m venv ~/castlerag_venv && ~/castlerag_venv/bin/pip install --upgrade pip && \
-  cd ~/code/CastleRAG && ~/castlerag_venv/bin/pip install -e ".[dev,inference]"'
+  python -m venv ~/alignview_venv && ~/alignview_venv/bin/pip install --upgrade pip && \
+  cd ~/code/AlignView && ~/alignview_venv/bin/pip install -e ".[dev,inference]"'
 ```
 
 Smoke check:
 
 ```bash
-castlerag --help
+alignview --help
 python scripts/smoke_local.py     # offline wiring check, no GPU needed
 ```
 
@@ -112,7 +100,7 @@ so the only mandatory edits are:
 
 ```yaml
 slurm:
-  account: "gisr109364"   # per user: `accinfo` shows yours
+  account: "<account>"   # per user: `accinfo` shows yours
   mail_user: "you@example.com"
 ```
 
@@ -130,12 +118,12 @@ dataset:
 
 ## 5. Start the vLLM inference server
 
-CastleRAG needs two model endpoints:
+AlignView needs two model endpoints:
 
 | Endpoint     | Model                          | Used by                                  |
 |--------------|--------------------------------|------------------------------------------|
-| Embedding    | `Tevatron/OmniEmbed-v0.1-multivent` | `castlerag preprocess --caption/--events`, `castlerag embed` |
-| Generation   | `Qwen/Qwen3-VL-8B-Instruct`    | `castlerag preprocess --caption/--events` (vision-language), `castlerag answer`, `castlerag smoke-test` |
+| Embedding    | `Tevatron/OmniEmbed-v0.1-multivent` | `alignview preprocess --caption/--events`, `alignview embed` |
+| Generation   | `Qwen/Qwen3-VL-8B-Instruct`    | `alignview preprocess --caption/--events` (vision-language), `alignview answer`, `alignview smoke-test` |
 
 On Snellius's gpu_a100 quarter-node (1 A100 80 GiB), both fit individually
 with room to spare.  The simplest pattern is **one vLLM process per node
@@ -148,7 +136,7 @@ two separate nodes:
 srun --account=$ACCOUNT --partition=gpu_a100 --gres=gpu:1 --cpus-per-task=18 \
      --mem=120G --time=24:00:00 --pty bash
 module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12.6.0 FFmpeg/7.0.2-GCCcore-13.3.0
-source ~/castlerag_venv/bin/activate
+source ~/alignview_venv/bin/activate
 vllm serve Tevatron/OmniEmbed-v0.1-multivent \
     --task embedding \
     --port 8200 \
@@ -161,7 +149,7 @@ vllm serve Tevatron/OmniEmbed-v0.1-multivent \
 srun --account=$ACCOUNT --partition=gpu_a100 --gres=gpu:1 --cpus-per-task=18 \
      --mem=120G --time=24:00:00 --pty bash
 module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12.6.0 FFmpeg/7.0.2-GCCcore-13.3.0
-source ~/castlerag_venv/bin/activate
+source ~/alignview_venv/bin/activate
 vllm serve Qwen/Qwen3-VL-8B-Instruct \
     --port 8201 \
     --served-model-name Qwen/Qwen3-VL-8B-Instruct qwen3vl \
@@ -198,7 +186,7 @@ serve the cache from disk while Qwen3-VL takes over the GPU.
 OMNIEMBED_URL=$VLLM_EMBED_URL \
     python scripts/precompute_queries.py /scratch/$USER/questions.json \
         --out /scratch/$USER/castle_derived/embeddings/query_cache.npz
-# Then for `castlerag answer`:
+# Then for `alignview answer`:
 export OMNIEMBED_QUERY_CACHE=/scratch/$USER/castle_derived/embeddings/query_cache.npz
 # OmniEmbedClient serves dense queries from the NPZ, no embed server needed
 ```
@@ -209,12 +197,12 @@ The Dash UI defaults to the **offline demo** engine so it always boots. The
 one-command way to run it against the **real** backend is the batch job
 `scripts/slurm/ui_live.slurm`, which boots OmniEmbed (:8200), Qwen3-VL (:8201)
 and Qdrant on the existing persisted index in the project space, then launches
-`castlerag ui --require-live --config configs/snellius_project.yaml`. Qdrant
+`alignview ui --require-live --config configs/snellius_project.yaml`. Qdrant
 storage and every derived path come from that config, so the UI serves the
 same four-day index the evaluation uses:
 
 ```bash
-sbatch --account=gisr109364 scripts/slurm/ui_live.slurm
+sbatch --account=<account> scripts/slurm/ui_live.slurm
 # watch logs/castle-ui-live_<jobid>.out for the SSH-tunnel command it prints, then
 # from your laptop:  ssh -L 8050:<NODE>:8050 $USER@snellius.surf.nl
 # open http://localhost:8050  -> top-bar chip should read "live RAG"
@@ -229,14 +217,14 @@ demo-on-failure behavior.
 The env wiring it sets (mirror this if launching by hand):
 
 ```bash
-export CASTLERAG_CONFIG=configs/snellius_project.yaml
+export ALIGNVIEW_CONFIG=configs/snellius_project.yaml
 export OMNIEMBED_BASE_URL=http://localhost:8200/v1   # OmniEmbed query embeddings
 export VLLM_BASE_URL=http://localhost:8201/v1        # Qwen3-VL rerank + generation
 ```
 
 Validate the backend **without** the UI (uses the query cache, so OmniEmbed isn't
 needed for the 5 smoke questions):
-`castlerag smoke-test /scratch-shared/$USER/questions.json --n 5 --config
+`alignview smoke-test /scratch-shared/$USER/questions.json --n 5 --config
 configs/snellius_project.yaml`. A fast headless check of the live engine + the review
 suggestions specifically is `scripts/_live_ui_check.sh` (run inside a 1-GPU
 `srun`; needs only Qwen3-VL + Qdrant + the query cache).
@@ -244,10 +232,10 @@ suggestions specifically is `scripts/_live_ui_check.sh` (run inside a 1-GPU
 ## 6. Run the offline build via SLURM
 
 `scripts/slurm/` contains nine batch scripts wired into a dependency chain
-that mirrors `castlerag preprocess → embed → index`.  Submit them in order:
+that mirrors `alignview preprocess → embed → index`.  Submit them in order:
 
 ```bash
-ACCOUNT=gisr109364   # per user: `accinfo` shows yours
+ACCOUNT=<account>   # per user: `accinfo` shows yours
 
 # 1. Base preprocessing — windowing, 1 fps frames, transcript normalization
 JOB1=$(sbatch --parsable --account=$ACCOUNT scripts/slurm/preprocess_main.slurm)
@@ -286,15 +274,14 @@ per day).  To rebuild only day 2, override the array on `sbatch`:
 sbatch --array=2 --account=$ACCOUNT scripts/slurm/preprocess_main.slurm
 ```
 
-Total cost for the full ego-only build is roughly **60–106 A100-hours**
-(see SPEC §3.5) — between EUR 115 and EUR 204 at 128 SBU/h × EUR 15/1000 SBU.
+Total cost for the full ego-only build is roughly **60–106 A100-hours** — between EUR 115 and EUR 204 at 128 SBU/h × EUR 15/1000 SBU.
 
 ### Qdrant on the indexing node
 
 `index_qdrant.slurm` assumes Qdrant is already listening on `localhost:6333`
 when the job runs.  Easiest pattern: start Qdrant inside the batch script
 itself so it lives only for the lifetime of the job.  Edit
-`scripts/slurm/index_qdrant.slurm` to add, just before the `castlerag index`
+`scripts/slurm/index_qdrant.slurm` to add, just before the `alignview index`
 line:
 
 ```bash
@@ -305,14 +292,14 @@ sleep 5
 trap 'kill $QDRANT_PID 2>/dev/null' EXIT
 ```
 
-(The project jobs use the shared binary `/projects/prjs2298/bin/qdrant`, set as
+(The project jobs use the shared binary `/projects/<project>/bin/qdrant`, set as
 `qdrant.binary` in `configs/snellius_project.yaml` and readable by the
-`prjs2298` group. Without it they fall back to `~/qdrant/qdrant`: a single
+`<project>` group. Without it they fall back to `~/qdrant/qdrant`: a single
 static binary you can download once, no sudo required.)
 
 The model cache works the same way: the project jobs load models offline from
-`/projects/prjs2298/hf_cache` (`slurm.hf_home` in the same config), so every
-member of the group can run them. Set `CASTLERAG_HF_HOME` to use another cache
+`/projects/<project>/hf_cache` (`slurm.hf_home` in the same config), so every
+member of the group can run them. Set `ALIGNVIEW_HF_HOME` to use another cache
 for one job; an `HF_HOME` from your login shell is ignored on purpose.
 
 ## 7. Incremental ingest (preferred after the first run)
@@ -323,16 +310,16 @@ run rather than a full rebuild.
 
 > **Always pass `--day N` after the initial bootstrap.**  A bootstrap
 > run without `--day` writes suffix-less cache files (`transcripts.npz`,
-> `clips.npz`, …) and a later plain `castlerag index` will see them, decide
+> `clips.npz`, …) and a later plain `alignview index` will see them, decide
 > embedding is already done, and silently miss the new day.  Stick with
-> per-day commands once data is in the collection — `castlerag embed --day N`
-> and `castlerag index --day N` always write distinct `*_dayN.npz` artifacts
+> per-day commands once data is in the collection — `alignview embed --day N`
+> and `alignview index --day N` always write distinct `*_dayN.npz` artifacts
 > and upsert only those records.  Tracking issue: #43.
 >
 > Caches are now also incremental *per record id*: re-running `embed` over an
 > existing `*_dayN.npz` keeps the cached rows and embeds only records that are
 > not in it yet.  That is what lets new **cameras** join an existing day (the
-> fixed room cameras, #50 Bug B) — see `docs/fixedcams_reingest.md`.
+> fixed room cameras).
 >
 > For days 2-4 with the GPU-server layout used on `/scratch-shared` (one
 > 3-A100 job per camera group, `DAY=N`), follow `docs/ingest_all_days.md`.
@@ -351,12 +338,12 @@ sbatch --account=$ACCOUNT --dependency=afterok:<embed_jobs> \
 Or interactively, on one node with both vLLM endpoints live:
 
 ```bash
-castlerag preprocess --config configs/snellius.yaml --day 5 --caption --events --aux
-castlerag embed      --config configs/snellius.yaml --day 5
-castlerag index      --config configs/snellius.yaml --day 5
+alignview preprocess --config configs/snellius.yaml --day 5 --caption --events --aux
+alignview embed      --config configs/snellius.yaml --day 5
+alignview index      --config configs/snellius.yaml --day 5
 ```
 
-`castlerag index --day N` only embeds and upserts day-N artifacts; existing
+`alignview index --day N` only embeds and upserts day-N artifacts; existing
 days in the Qdrant collection are left intact (UUIDv5 point ids are
 deterministic per `record_id`, so day-N records produce distinct new
 points).  BM25 still rebuilds from the full transcript corpus, so day-1
@@ -367,7 +354,7 @@ retrieval keeps working.
 After indexing finishes, run the eval:
 
 ```bash
-castlerag answer \
+alignview answer \
     --config configs/snellius.yaml \
     /scratch/$USER/questions.json \
     --out /scratch/$USER/castle_outputs/predictions.json
@@ -381,7 +368,7 @@ Smoke a single batch first to catch config / endpoint issues without burning
 the whole run:
 
 ```bash
-castlerag smoke-test /scratch/$USER/questions.json --n 5 \
+alignview smoke-test /scratch/$USER/questions.json --n 5 \
     --config configs/snellius.yaml
 ```
 

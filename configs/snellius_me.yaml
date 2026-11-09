@@ -1,4 +1,4 @@
-# CastleRAG — per-user Snellius config (deep-merges on configs/base.yaml).
+# AlignView — per-user Snellius config (deep-merges on configs/base.yaml).
 # Corrects the scratch path for this cluster (/scratch-shared/$USER) and the
 # Hugging Face dataset repo id.  $USER is expanded by config.py at load time.
 dataset:

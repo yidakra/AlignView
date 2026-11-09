@@ -1,0 +1,261 @@
+"""Expansion from retrieval hits to route-aware evidence packs."""
+
+from __future__ import annotations
+
+from collections import OrderedDict
+from typing import List, Optional
+
+from alignview.evidence_text import (
+    MAX_CAPTION_CHARS,
+    MAX_SCENE_GRAPH_CHARS,
+    truncate_text,
+)
+from alignview.frame_encoding import available_frames, sample_frames_evenly
+from alignview.routing.question_router import QuestionRoute
+from alignview.schemas import EvidencePack, RetrievalHit
+
+
+def expand_candidates(
+    hits: List[RetrievalHit],
+    route: QuestionRoute,
+    max_candidate_videos: int = 4,
+    frames_per_candidate: int = 32,
+) -> List[EvidencePack]:
+    """Collapse retrieval hits into up to max_candidate_videos evidence packs.
+
+    Each pack includes sampled frame paths, linked transcript windows,
+    event summaries, OCR spans, and auxiliary notes for the reranker.
+    """
+    primary_hits = [
+        hit
+        for hit in hits
+        if hit.source_type in {"main_clip", "main_event_summary", "transcript_window"}
+    ]
+    if not primary_hits:
+        primary_hits = hits
+
+    packs: List[EvidencePack] = []
+    used_row_ids: set[str] = set()
+    for primary in primary_hits:
+        if len(packs) >= max_candidate_videos:
+            break
+        bundle = _bundle_rows(primary, hits, route)
+        evidence_rows = []
+        seen_local: set[str] = set()
+        for row in bundle:
+            if row.record_id in seen_local:
+                continue
+            seen_local.add(row.record_id)
+            evidence_rows.append(row)
+            used_row_ids.add(row.record_id)
+
+        packs.append(
+            EvidencePack(
+                pack_id=f"pack_{primary.record_id}",
+                route=route,
+                primary_hit=primary,
+                retrieval_score=primary.score,
+                evidence_rows=evidence_rows,
+                transcript_evidence=_collect_transcripts(evidence_rows),
+                event_summaries=_collect_event_summaries(evidence_rows),
+                ocr_spans=_collect_ocr(evidence_rows),
+                frame_descriptions=_collect_frame_descriptions(evidence_rows),
+                auxiliary_notes=_collect_aux_notes(evidence_rows),
+                sampled_frame_paths=_collect_frame_paths(
+                    evidence_rows, max_frames=frames_per_candidate
+                ),
+            )
+        )
+
+    if not packs and hits:
+        primary = hits[0]
+        packs.append(
+            EvidencePack(
+                pack_id=f"pack_{primary.record_id}",
+                route=route,
+                primary_hit=primary,
+                retrieval_score=primary.score,
+                evidence_rows=[primary],
+                transcript_evidence=_collect_transcripts([primary]),
+                event_summaries=_collect_event_summaries([primary]),
+                ocr_spans=_collect_ocr([primary]),
+                frame_descriptions=_collect_frame_descriptions([primary]),
+                auxiliary_notes=_collect_aux_notes([primary]),
+                sampled_frame_paths=_collect_frame_paths(
+                    [primary], max_frames=frames_per_candidate
+                ),
+            )
+        )
+
+    return packs
+
+
+def _bundle_rows(
+    primary: RetrievalHit, hits: List[RetrievalHit], route: QuestionRoute
+) -> List[RetrievalHit]:
+    """Return hits that share context with or temporally overlap the primary hit."""
+    rows: "OrderedDict[str, RetrievalHit]" = OrderedDict()
+    rows[primary.record_id] = primary
+    for hit in hits:
+        if hit.record_id == primary.record_id:
+            continue
+        if _same_context(primary, hit) or _overlaps(primary, hit, route=route):
+            rows[hit.record_id] = hit
+    return list(rows.values())
+
+
+def _same_context(left: RetrievalHit, right: RetrievalHit) -> bool:
+    """Return True if both hits share the same day, camera, and participant."""
+    return (
+        left.day == right.day
+        and left.camera_id == right.camera_id
+        and left.participant_id == right.participant_id
+    )
+
+
+def _overlaps(
+    left: RetrievalHit,
+    right: RetrievalHit,
+    route: QuestionRoute = "mixed",
+    slack_ms: Optional[int] = None,
+) -> bool:
+    """Return True if the two hits' time spans overlap within the given slack window.
+
+    Temporal questions use a tighter window (10 s) to avoid bundling unrelated
+    micro-events that fall within the same 30-second span. All other routes use
+    20 s, reduced from the original 30 s to better isolate distinct moments.
+    """
+    if slack_ms is None:
+        slack_ms = 10_000 if route == "temporal" else 20_000
+    if left.absolute_start is None or left.absolute_end is None:
+        return False
+    if right.absolute_start is None or right.absolute_end is None:
+        return False
+    return not (
+        right.absolute_start > left.absolute_end + slack_ms
+        or right.absolute_end < left.absolute_start - slack_ms
+    )
+
+
+def _collect_transcripts(rows: List[RetrievalHit]) -> List[str]:
+    """Return deduplicated transcript texts from the given hits."""
+    return _unique_values([row.transcript_text for row in rows if row.transcript_text])
+
+
+def _collect_event_summaries(rows: List[RetrievalHit]) -> List[str]:
+    """Return deduplicated event summary strings from the given hits."""
+    return _unique_values([row.event_summary for row in rows if row.event_summary])
+
+
+def _collect_ocr(rows: List[RetrievalHit]) -> List[str]:
+    """Return deduplicated OCR text strings from the given hits."""
+    return _unique_values([row.ocr_text for row in rows if row.ocr_text])
+
+
+# Clips described (caption + scene graph) per reranker pack.
+MAX_DESCRIBED_CLIPS = 8
+
+
+def _collect_frame_descriptions(
+    rows: List[RetrievalHit], max_clips: int = MAX_DESCRIBED_CLIPS
+) -> List[str]:
+    """Return deduplicated frame descriptions from main_clip hits.
+
+    Renders the VLM clip caption and scene graph (truncated) so the reranker
+    can actually read what the clip shows; the asset path alone (the previous
+    output) told the model nothing about the frames. At most ``max_clips``
+    clips are described (rows arrive primary-first), because a bundle can
+    hold every clip sharing day+camera+participant and the reranker enforces
+    no token budget.
+    """
+    values = []
+    described = 0
+    for row in rows:
+        if row.source_type != "main_clip":
+            continue
+        caption = truncate_text(row.clip_caption, MAX_CAPTION_CHARS)
+        scene = truncate_text(row.scene_graph_text, MAX_SCENE_GRAPH_CHARS)
+        # Only clips that actually render text count against the cap; every
+        # other main_clip row keeps the short asset-path line it always had.
+        if (caption or scene) and described < max_clips:
+            described += 1
+            label = f"clip {row.record_id}"
+            if row.camera_id:
+                label += f" ({row.camera_id})"
+            if caption:
+                values.append(f"{label} caption: {caption}")
+            if scene:
+                values.append(f"{label} scene graph: {scene}")
+        elif row.asset_path:
+            values.append(f"clip asset: {row.asset_path}")
+    return _unique_values(values)
+
+
+def _collect_frame_paths(
+    rows: List[RetrievalHit], max_frames: Optional[int] = None
+) -> List[str]:
+    """Return deduplicated frame paths from all hits, capped at ``max_frames``.
+
+    The budget is shared across the rows that carry frames (primary row
+    first, leftover frames to the earliest rows) and each row's share is
+    sampled evenly across that clip. Taking the first N paths in row order
+    would hand the whole budget to the primary clip's opening seconds and
+    never show the reranker a mid-clip frame of a bundled clip.
+    """
+    if max_frames is not None and max_frames <= 0:
+        return []
+    # Sample from the frames still on disk (frames may be thinned after
+    # embedding while the payload lists all of them).
+    frame_lists = [available_frames(row.sampled_frame_paths) for row in rows]
+    frame_lists = [frames for frames in frame_lists if frames]
+    paths: List[str] = []
+    seen: set = set()
+    if max_frames is None:
+        for frames in frame_lists:
+            for p in frames:
+                if p not in seen:
+                    seen.add(p)
+                    paths.append(p)
+        return paths
+    if not frame_lists:
+        return []
+    # Round-robin allocation, primary row first: a row that runs out of
+    # frames stops taking slots, so its unused share goes to the others.
+    capacity = [len(frames) for frames in frame_lists]
+    alloc = [0] * len(frame_lists)
+    remaining = max_frames
+    while remaining > 0 and any(a < c for a, c in zip(alloc, capacity)):
+        for i in range(len(frame_lists)):
+            if remaining == 0:
+                break
+            if alloc[i] < capacity[i]:
+                alloc[i] += 1
+                remaining -= 1
+    for frames, budget in zip(frame_lists, alloc):
+        for p in sample_frames_evenly(frames, budget):
+            if p not in seen:
+                seen.add(p)
+                paths.append(p)
+    return paths[:max_frames]
+
+
+def _collect_aux_notes(rows: List[RetrievalHit]) -> List[str]:
+    """Return deduplicated auxiliary-source notes prefixed with their source type."""
+    values = []
+    for row in rows:
+        if not row.source_type.startswith("aux_"):
+            continue
+        note = (
+            row.event_summary
+            or row.ocr_text
+            or row.transcript_text
+            or row.asset_path
+        )
+        if note:
+            values.append(f"{row.source_type}: {note}")
+    return _unique_values(values)
+
+
+def _unique_values(values: List[str]) -> List[str]:
+    """Return values with duplicates removed while preserving insertion order."""
+    return list(OrderedDict((value, None) for value in values).keys())

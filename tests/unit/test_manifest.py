@@ -1,8 +1,8 @@
-"""Tests for src/castlerag/dataset/manifest.py"""
+"""Tests for src/alignview/dataset/manifest.py"""
 
 from pathlib import Path
 
-from castlerag.dataset.manifest import (
+from alignview.dataset.manifest import (
     AuxAssetRow,
     _extract_timestamp_hint,
     _participant_from_stem,

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from castlerag.study import capture as cap
-from castlerag.ui.youtube import YouTubeMirror
+from alignview.study import capture as cap
+from alignview.ui.youtube import YouTubeMirror
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -271,7 +271,7 @@ def test_annotate_image(tmp_path: Path):
 
 def test_layout_ids_exist_in_dashboard():
     pytest.importorskip("dash")
-    from castlerag.ui.layout import build_layout
+    from alignview.ui.layout import build_layout
 
     ids: set = set()
 
@@ -293,7 +293,7 @@ def test_layout_ids_exist_in_dashboard():
 
 def test_mode_badge_text_matches_live_check():
     pytest.importorskip("dash")
-    from castlerag.ui.layout import _top_bar
+    from alignview.ui.layout import _top_bar
 
     def find(node: object):
         if getattr(node, "id", None) == "mode-badge":

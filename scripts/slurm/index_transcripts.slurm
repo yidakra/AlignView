@@ -4,7 +4,7 @@
 # Array: one job per day (1-4). Transcript BM25 is finalized during the
 # collection build in index_qdrant.slurm from the full transcript corpus.
 # This is the GPU part of transcript indexing; BM25 itself is CPU-heavy.
-# Estimated: 2–4 CPU-hours + 4–10 GPU-hours total (see SPEC §3.5).
+# Estimated: 2–4 CPU-hours + 4–10 GPU-hours total.
 #
 # Usage:
 #   sbatch --account=<account> --dependency=afterok:<preprocess_job_id> \
@@ -26,7 +26,7 @@ set -euo pipefail
 
 DAY="${SLURM_ARRAY_TASK_ID}"
 CONFIG="${CONFIG:-configs/snellius.yaml}"
-VENV="${VENV:-${HOME}/castlerag_venv}"
+VENV="${VENV:-${HOME}/alignview_venv}"
 
 echo "[index_transcripts] day=${DAY}  host=$(hostname)  start=$(date -Iseconds)"
 
@@ -34,7 +34,7 @@ module purge; module load 2024; module load Python/3.12.3-GCCcore-13.3.0 CUDA/12
 
 source "${VENV}/bin/activate"
 
-castlerag embed \
+alignview embed \
     --config "${CONFIG}" \
     --modality transcript \
     --day "${DAY}"

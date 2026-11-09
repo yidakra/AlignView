@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from castlerag.ui import engine_factory as ef
-from castlerag.ui.chat import PlaceholderEngine
+from alignview.ui import engine_factory as ef
+from alignview.ui.chat import PlaceholderEngine
 
 
 class _Mirror:
@@ -112,9 +112,9 @@ def _install_fake_engine(monkeypatch, probe_exc=None, recorder=None):
     engine_cls = type("_FakeRagEngine", (_FakeRagEngine,), {})
     engine_cls.probe_exc = probe_exc
     engine_cls.probe_recorder = recorder
-    fake_mod = types.ModuleType("castlerag.ui.rag_engine")
+    fake_mod = types.ModuleType("alignview.ui.rag_engine")
     fake_mod.RagEngine = engine_cls
-    monkeypatch.setitem(sys.modules, "castlerag.ui.rag_engine", fake_mod)
+    monkeypatch.setitem(sys.modules, "alignview.ui.rag_engine", fake_mod)
     # /models lookup inside the failure path should not hit the network.
     monkeypatch.setattr(
         ef.urllib.request,
