@@ -7,6 +7,7 @@ name = "alignview"
 version = "0.1.0"
 description = "AlignView: interactive evidence verification for question answering over time-aligned video streams"
 requires-python = ">=3.10"
+license = { text = "MIT" }
 dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
