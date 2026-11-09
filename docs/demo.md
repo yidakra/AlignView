@@ -6,13 +6,16 @@ Dash dashboard with the live `RagEngine`. It is non-destructive (never
 preprocesses / embeds / indexes / creates collections, and aborts if the
 collection looks emptied).
 
-It has three exposure modes, selected by env vars at submit time:
+It has four exposure modes, selected by env vars at submit time:
 
 | Mode | Trigger | Who can reach it | Auth |
 |------|---------|------------------|------|
-| **SSH tunnel** (default) | neither var set | anyone with a Snellius account | SSH |
+| **SSH tunnel** (default) | no var set | anyone with a Snellius account | SSH |
 | **Quick tunnel** | `PUBLIC_TUNNEL=1` | anyone with the link | HTTP basic auth (required) |
+| **ngrok static domain** | `NGROK_DOMAIN=…` | anyone with the link | HTTP basic auth (required) |
 | **Named tunnel** | `NAMED_TUNNEL_TOKEN=…` | your email allowlist | Cloudflare Access |
+
+If more than one is set, the named tunnel wins, then ngrok, then the quick tunnel.
 
 All modes run `castlerag ui --require-live`, so the job fails loudly with the
 exact missing dependency rather than silently serving the offline placeholder.
@@ -75,6 +78,42 @@ reserved for next time.
   or a file the job reads; never commit it.
 - Basic auth is **optional** in named mode (Access already gates at the edge).
   Set `CASTLERAG_UI_BASIC_AUTH=user:pass` too only if you want defense-in-depth.
+
+---
+
+## ngrok static domain (same URL every run, no own domain needed)
+
+ngrok's free plan includes one static domain, something like
+`<name>.ngrok-free.app`. The job serves the UI on it, so the link in the
+questionnaire never has to change. Free-plan visitors see ngrok's warning page
+once per browser and click **Visit Site** to continue.
+
+### One-time setup
+
+1. Sign up at ngrok.com. Under **Universal Gateway → Domains**, claim the free
+   static domain.
+2. On a Snellius login node, install the agent and store the authtoken (from
+   **Getting Started → Your Authtoken**) in its own config file:
+
+   ```bash
+   curl -fsSL https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz | tar -xz -C ~ ngrok
+   ~/ngrok config add-authtoken <your authtoken>
+   ```
+
+   The token lives in `~/.config/ngrok/ngrok.yml`; never commit it. Set
+   `NGROK=/path/to/ngrok` at submit time if the binary is elsewhere.
+
+### Run it
+
+```bash
+sbatch --account=gisr109364 --time=12:00:00 \
+  --export=ALL,NGROK_DOMAIN=<name>.ngrok-free.app,CASTLERAG_UI_BASIC_AUTH="$(cat ~/.castlerag_ui_auth)" \
+  scripts/slurm/ui_live.slurm
+```
+
+`--time` overrides the script's 3-hour default; the job costs about 256 SBU per
+hour. Like the quick tunnel, it refuses to start without
+`CASTLERAG_UI_BASIC_AUTH`. The agent log goes to `logs/ui_ngrok_<jobid>.log`.
 
 ---
 
